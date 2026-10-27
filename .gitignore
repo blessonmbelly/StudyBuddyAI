@@ -25,3 +25,15 @@ desktop.ini
 
 # Logs
 *.log
+
+# Python & Backend
+__pycache__/
+*.py[cod]
+*$py.class
+*.env
+*.env.*
+!.env.example
+venv/
+.venv/
+env/
+*.sqlite3
