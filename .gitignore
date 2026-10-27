@@ -1,0 +1,27 @@
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE & Editor Configurations
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Environment & Sensitive Keys
+.env
+*.local
+*.keystore
+*.jks
+
+# Flutter & Dart Build and Tooling
+**/build/
+**/.dart_tool/
+**/.pub-cache/
+**/.pub/
+**/.flutter-plugins-dependencies
+
+# Logs
+*.log
