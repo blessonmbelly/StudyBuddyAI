@@ -1,7 +1,12 @@
 import os
+import uuid
 from fastapi import APIRouter, File, UploadFile, HTTPException
 from ..config import settings
-from ..models import ExtractionResponse
+from ..models import (
+    ExtractionResponse,
+    DocumentOrganizeRequest,
+    DocumentOrganizeResponse,
+)
 from ..document_parser import (
     validate_file,
     extract_from_txt,
@@ -9,7 +14,7 @@ from ..document_parser import (
     extract_from_pdf,
     validate_image,
 )
-from ..gemini_service import perform_gemini_ocr
+from ..gemini_service import perform_gemini_ocr, organize_study_document
 
 router = APIRouter(prefix="/api/files", tags=["Files"])
 
@@ -19,6 +24,7 @@ async def extract_file_content(file: UploadFile = File(...)):
     Extracts text from uploaded study material:
     Supports TXT, DOCX, text-based PDF, scanned PDF, JPG, and PNG.
     Prioritizes embedded PDF text before falling back to OCR.
+    Automatically generates a meaningful document title, identifies subject, and extracts topics.
     """
     content = await file.read()
     filename = file.filename or "uploaded_file"
@@ -43,16 +49,9 @@ async def extract_file_content(file: UploadFile = File(...)):
                 extracted_text = raw_text
                 method = "pdf_embedded_text"
             else:
-                # Scanned PDF fallback
-                if raw_text:
-                    extracted_text = raw_text
-                    method = "pdf_partial_text"
-                else:
-                    extracted_text = (
-                        "Scanned PDF detected without embedded text layer. "
-                        "Keep pages well-lit or convert individual pages to images for direct Vision OCR."
-                    )
-                    method = "scanned_pdf_notice"
+                # Scanned or image-based PDF: perform multimodal OCR across all document pages
+                extracted_text = perform_gemini_ocr(content, mime_type="application/pdf")
+                method = "gemini_pdf_ocr"
 
         elif ext in {".jpg", ".jpeg", ".png"}:
             mime_type = "image/png" if ext == ".png" else "image/jpeg"
@@ -69,8 +68,13 @@ async def extract_file_content(file: UploadFile = File(...)):
         del content
 
     words = len(extracted_text.split()) if extracted_text else 0
+    doc_id = f"doc_{uuid.uuid4().hex[:10]}"
+
+    # Automatically organize document with smart metadata
+    org_data = organize_study_document(extracted_text, filename=filename)
 
     return ExtractionResponse(
+        document_id=doc_id,
         filename=filename,
         file_type=ext.replace(".", "").upper(),
         extracted_text=extracted_text,
@@ -78,4 +82,29 @@ async def extract_file_content(file: UploadFile = File(...)):
         extraction_method=method,
         page_count=page_count,
         success=True,
+        generated_title=org_data["title"],
+        detected_subject=org_data["subject"],
+        topics=org_data["topics"],
+        processing_status=org_data["processing_status"],
     )
+
+@router.post("/organize", response_model=DocumentOrganizeResponse)
+async def organize_text_content(request: DocumentOrganizeRequest):
+    """
+    Organizes raw or pasted study material text:
+    Generates meaningful title, detects academic subject, and extracts topics.
+    """
+    words = len(request.text.split()) if request.text else 0
+    doc_id = f"doc_{uuid.uuid4().hex[:10]}"
+    filename = request.filename or "pasted_text"
+    org_data = organize_study_document(request.text, filename=filename)
+    return DocumentOrganizeResponse(
+        document_id=doc_id,
+        title=org_data["title"],
+        original_filename=filename,
+        subject=org_data["subject"],
+        topics=org_data["topics"],
+        word_count=words,
+        processing_status=org_data["processing_status"],
+    )
+

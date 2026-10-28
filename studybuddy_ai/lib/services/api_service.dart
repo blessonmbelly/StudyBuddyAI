@@ -36,6 +36,24 @@ class ApiService {
     return extractFromBytes(bytes, filename);
   }
 
+  static String cleanErrorMessage(dynamic e, String defaultPrefix) {
+    final str = e.toString().replaceAll('Exception: ', '').trim();
+    final lower = str.toLowerCase();
+    if (lower.contains('closed before full header') ||
+        lower.contains('connection refused') ||
+        lower.contains('failed host lookup') ||
+        lower.contains('socketexception') ||
+        lower.contains('clientexception') ||
+        lower.contains('connection reset') ||
+        lower.contains('handshakeexception')) {
+      return 'Cannot reach backend at $baseUrl.\n\nPlease start the backend on your PC:\ncd backend\n.\\venv\\Scripts\\uvicorn.exe main:app --reload --host 127.0.0.1 --port 8000\nand verify: adb reverse tcp:8000 tcp:8000';
+    }
+    if (lower.contains('timeout')) {
+      return '$defaultPrefix timed out. Please check your network or try a smaller section.';
+    }
+    return str.isNotEmpty ? str : '$defaultPrefix failed.';
+  }
+
   /// Upload in-memory bytes and extract text
   static Future<Map<String, dynamic>> extractFromBytes(
       List<int> bytes, String filename) async {
@@ -55,13 +73,37 @@ class ApiService {
         final err = json.decode(utf8.decode(response.bodyBytes));
         throw Exception(err['detail'] ?? 'Extraction failed (${response.statusCode})');
       }
-    } on TimeoutException {
-      throw Exception('Extraction timed out. Try a smaller file or shorter section.');
-    } on SocketException {
-      throw Exception('Network error: Unable to connect to backend at $baseUrl. Ensure server is running.');
     } catch (e) {
-      if (e.toString().contains('Exception:')) rethrow;
-      throw Exception('Extraction error: $e');
+      throw Exception(cleanErrorMessage(e, 'Extraction'));
+    }
+  }
+
+  /// Organize study material text to generate meaningful title, subject, and topics
+  static Future<Map<String, dynamic>> organizeText({
+    required String text,
+    String? filename,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/files/organize');
+      final payload = <String, dynamic>{'text': text};
+      if (filename != null) payload['filename'] = filename;
+
+      final response = await http
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode(payload),
+          )
+          .timeout(requestTimeout);
+
+      if (response.statusCode == 200) {
+        return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      } else {
+        final err = json.decode(utf8.decode(response.bodyBytes));
+        throw Exception(err['detail'] ?? 'Organization failed (${response.statusCode})');
+      }
+    } catch (e) {
+      throw Exception(cleanErrorMessage(e, 'Document organization'));
     }
   }
 
@@ -94,11 +136,8 @@ class ApiService {
         final err = json.decode(utf8.decode(response.bodyBytes));
         throw Exception(err['detail'] ?? 'Note generation failed (${response.statusCode})');
       }
-    } on SocketException {
-      throw Exception('Cannot connect to backend at $baseUrl.');
     } catch (e) {
-      if (e.toString().contains('Exception:')) rethrow;
-      throw Exception('Note generation error: $e');
+      throw Exception(cleanErrorMessage(e, 'Note generation'));
     }
   }
 
@@ -132,11 +171,8 @@ class ApiService {
         final err = json.decode(utf8.decode(response.bodyBytes));
         throw Exception(err['detail'] ?? 'Quiz generation failed (${response.statusCode})');
       }
-    } on SocketException {
-      throw Exception('Cannot connect to backend at $baseUrl.');
     } catch (e) {
-      if (e.toString().contains('Exception:')) rethrow;
-      throw Exception('Quiz generation error: $e');
+      throw Exception(cleanErrorMessage(e, 'Quiz generation'));
     }
   }
 
@@ -166,11 +202,8 @@ class ApiService {
         final err = json.decode(utf8.decode(response.bodyBytes));
         throw Exception(err['detail'] ?? 'Chat request failed (${response.statusCode})');
       }
-    } on SocketException {
-      throw Exception('Cannot connect to backend at $baseUrl.');
     } catch (e) {
-      if (e.toString().contains('Exception:')) rethrow;
-      throw Exception('Chat error: $e');
+      throw Exception(cleanErrorMessage(e, 'Chat'));
     }
   }
 }

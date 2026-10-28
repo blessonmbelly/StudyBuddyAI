@@ -9,7 +9,7 @@ load_dotenv(dotenv_path=ENV_PATH)
 
 class Settings:
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "").strip()
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.5-flash").strip()
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
     HOST: str = os.getenv("HOST", "0.0.0.0").strip()
     PORT: int = int(os.getenv("PORT", "8000"))
     MAX_UPLOAD_SIZE_MB: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "25"))

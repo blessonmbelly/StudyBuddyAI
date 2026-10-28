@@ -9,11 +9,15 @@ import '../data/mock_chat_data.dart';
 class ChatWithNotesScreen extends StatefulWidget {
   final NoteItem? selectedNote;
   final VoidCallback? onBack;
+  final List<NoteItem>? availableNotes;
+  final void Function(NoteItem note)? onSelectNote;
 
   const ChatWithNotesScreen({
     super.key,
     this.selectedNote,
     this.onBack,
+    this.availableNotes,
+    this.onSelectNote,
   });
 
   @override
@@ -26,19 +30,60 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _isTyping = false;
-
-  final List<String> _suggestedPrompts = [
-    'Summarize Atkinson-Shiffrin Model',
-    'Retrograde vs Anterograde Amnesia',
-    'Explain Ebbinghaus forgetting curve',
-    'Give me a mnemonic for memory stores',
-  ];
+  List<String> _suggestedPrompts = [];
 
   @override
   void initState() {
     super.initState();
-    _currentNote = widget.selectedNote ?? sampleStudyNotes.first;
-    _messages.addAll(initialChatMessages);
+    _initNoteState();
+  }
+
+  void _initNoteState() {
+    _currentNote = widget.selectedNote ??
+        NoteItem.synthesizedFromDocument(
+          id: 'general_ai',
+          title: 'StudyBuddy AI Assistant',
+          subject: 'General Study',
+          text: 'Ask questions, clarify concepts, or request study tips based on your documents.',
+          topics: const ['Summary', 'Practice Quiz', 'Key Concepts', 'Study Tips'],
+        );
+
+    final welcomeText = widget.selectedNote != null
+        ? "Hi! 👋 I'm StudyBuddy AI. I've reviewed your notes on ${_currentNote.courseName}: ${_currentNote.title}. Ask me anything—definitions, key concepts, or quiz prep!"
+        : "Hi! 👋 I'm StudyBuddy AI, your personal study assistant. Ask me questions, brainstorm topics, or upload lecture notes to study together!";
+
+    _messages.clear();
+    _messages.add(
+      ChatMessage(
+        id: 'msg_welcome',
+        sender: MessageSender.ai,
+        text: welcomeText,
+        timestamp: DateTime.now(),
+        noteReference: widget.selectedNote != null
+            ? '${_currentNote.courseName} • ${_currentNote.title}'
+            : 'StudyBuddy AI',
+        keyTakeaways: _currentNote.definitions.isNotEmpty
+            ? _currentNote.definitions.take(3).toList()
+            : null,
+      ),
+    );
+
+    if (_currentNote.definitions.isNotEmpty) {
+      _suggestedPrompts = _currentNote.definitions
+          .take(4)
+          .map((d) {
+            final term = d.split(':').first.trim();
+            return 'Explain $term';
+          })
+          .toList();
+    } else {
+      _suggestedPrompts = [
+        'Summarize key ideas',
+        'Generate 3 practice questions',
+        'Explain core principles',
+        'Give me a study mnemonic',
+      ];
+    }
   }
 
   @override
@@ -46,7 +91,7 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
     super.didUpdateWidget(oldWidget);
     if (widget.selectedNote != null && widget.selectedNote != _currentNote) {
       setState(() {
-        _currentNote = widget.selectedNote!;
+        _initNoteState();
       });
     }
   }
@@ -87,6 +132,7 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
         .take(6)
         .map((m) => {
               'role': m.sender == MessageSender.user ? 'user' : 'model',
+              'content': m.text,
               'text': m.text,
             })
         .toList();
@@ -207,11 +253,11 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
               child: const Icon(Icons.smart_toy_rounded,
                   color: Colors.white, size: 20),
             ),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'Chat with Notes',
                   style: TextStyle(
                     fontSize: 17,
@@ -220,8 +266,8 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
                   ),
                 ),
                 Text(
-                  'Grounding enabled • PSYC 201',
-                  style: TextStyle(
+                  'Grounding enabled • ${_currentNote.courseCode.isNotEmpty ? _currentNote.courseCode : _currentNote.courseName}',
+                  style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w500,
                     color: AppColors.emerald,
@@ -235,8 +281,7 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
                 color: AppColors.onSurfaceVariant),
             onPressed: () {
               setState(() {
-                _messages.clear();
-                _messages.addAll(initialChatMessages);
+                _initNoteState();
               });
             },
             tooltip: 'Clear conversation',
@@ -247,6 +292,10 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
   }
 
   Widget _buildNoteContextBar() {
+    final available = (widget.availableNotes != null && widget.availableNotes!.isNotEmpty)
+        ? widget.availableNotes!
+        : sampleStudyNotes;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       color: AppColors.surfaceContainerLow,
@@ -271,13 +320,22 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
             onSelected: (note) {
               setState(() {
                 _currentNote = note;
+                _initNoteState();
               });
+              if (widget.onSelectNote != null) {
+                widget.onSelectNote!(note);
+              }
             },
             itemBuilder: (context) {
-              return sampleStudyNotes.map((n) {
+              return available.map((n) {
                 return PopupMenuItem(
                   value: n,
-                  child: Text(n.title, style: const TextStyle(fontSize: 13)),
+                  child: Text(
+                    '${n.courseCode.isNotEmpty ? "[${n.courseCode}] " : ""}${n.title}',
+                    style: const TextStyle(fontSize: 13),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 );
               }).toList();
             },

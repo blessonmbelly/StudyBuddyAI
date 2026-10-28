@@ -5,17 +5,20 @@ import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import '../theme/app_theme.dart';
 import '../models/note.dart';
+import '../models/study_document.dart';
 import '../services/api_service.dart';
 
 class ScanImportScreen extends StatefulWidget {
   final String initialMode;
   final void Function(NoteItem note)? onExportToNotes;
+  final void Function(StudyDocument document)? onExportDocument;
   final VoidCallback? onNavigateToNotes;
 
   const ScanImportScreen({
     super.key,
     this.initialMode = 'camera',
     this.onExportToNotes,
+    this.onExportDocument,
     this.onNavigateToNotes,
   });
 
@@ -31,43 +34,21 @@ class _ScanImportScreenState extends State<ScanImportScreen> {
   late TextEditingController _pasteController;
   bool _isExtracting = false;
   bool _isGenerating = false;
+  bool _isOrganizing = false;
   String? _extractionMethod;
   String? _sourceFilename;
-  bool? _isBackendOnline;
-
-  final String _sampleOcrText = """# Ebbinghaus Forgetting Curve
-
-The Ebbinghaus Forgetting Curve demonstrates how learned information decays exponentially over time when there is no active attempt to retain it.
-
-Key Takeaways:
-1. Memory retention drops sharply within the first 24 hours (up to 70% loss).
-2. Spaced Repetition interrupts the decay trajectory and flattens the curve over progressive review intervals.
-3. Overlearning increases baseline cognitive durability.""";
+  String? _documentId;
+  String? _documentTitle;
+  String? _detectedSubject;
+  List<String> _documentTopics = [];
+  String _processingStatus = 'completed';
 
   @override
   void initState() {
     super.initState();
     _activeMode = widget.initialMode;
-    _textController = TextEditingController(text: _sampleOcrText);
+    _textController = TextEditingController();
     _pasteController = TextEditingController();
-    _checkBackendStatus();
-  }
-
-  Future<void> _checkBackendStatus() async {
-    try {
-      final res = await ApiService.checkHealth();
-      if (mounted) {
-        setState(() {
-          _isBackendOnline = res['status'] == 'ok';
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _isBackendOnline = false;
-        });
-      }
-    }
   }
 
   void _showErrorDialog(String title, String message) {
@@ -100,6 +81,325 @@ Key Takeaways:
     );
   }
 
+  void _notifyDocumentOrganized({NoteItem? note}) {
+    final text = _textController.text.trim();
+    if (text.isEmpty) return;
+    final doc = StudyDocument(
+      id: _documentId ?? 'doc_${DateTime.now().millisecondsSinceEpoch}',
+      title: _documentTitle ?? _sourceFilename ?? 'Study Document',
+      originalFilename: _sourceFilename ?? 'Uploaded Document',
+      subject: _detectedSubject ?? 'Unknown',
+      topics: List.from(_documentTopics),
+      extractedText: text,
+      wordCount: text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length,
+      extractionMethod: _extractionMethod ?? 'OCR',
+      processingStatus: _processingStatus,
+      generatedNote: note,
+    );
+    if (widget.onExportDocument != null) {
+      widget.onExportDocument!(doc);
+    }
+  }
+
+  void _showEditMetadataDialog() {
+    final titleCtrl = TextEditingController(text: _documentTitle ?? '');
+    final subjectCtrl = TextEditingController(text: _detectedSubject ?? '');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.edit_note_rounded, color: AppColors.primary),
+            SizedBox(width: 8),
+            Text('Edit Title & Subject', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Document Title', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.onSurfaceVariant)),
+              const SizedBox(height: 6),
+              TextField(
+                controller: titleCtrl,
+                decoration: InputDecoration(
+                  hintText: 'Enter specific document title...',
+                  filled: true,
+                  fillColor: AppColors.surfaceContainerLow,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text('Academic Subject', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.onSurfaceVariant)),
+              const SizedBox(height: 6),
+              TextField(
+                controller: subjectCtrl,
+                decoration: InputDecoration(
+                  hintText: 'e.g. Biology, Psychology, Computer Science',
+                  filled: true,
+                  fillColor: AppColors.surfaceContainerLow,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: ['Biology', 'Psychology', 'Computer Science', 'Economics', 'Chemistry', 'History']
+                    .map((s) => ActionChip(
+                          label: Text(s, style: const TextStyle(fontSize: 11)),
+                          onPressed: () => subjectCtrl.text = s,
+                          backgroundColor: AppColors.surfaceContainerHigh,
+                          padding: EdgeInsets.zero,
+                        ))
+                    .toList(),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final newTitle = titleCtrl.text.trim();
+              final newSubject = subjectCtrl.text.trim();
+              if (newTitle.isNotEmpty) {
+                setState(() {
+                  _documentTitle = newTitle;
+                  if (newSubject.isNotEmpty) {
+                    _detectedSubject = newSubject;
+                  }
+                  _processingStatus = 'edited';
+                });
+                _notifyDocumentOrganized();
+              }
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Document title & subject updated!'),
+                  behavior: SnackBarBehavior.floating,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
+            child: const Text('Save Changes'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _organizeCurrentText() async {
+    final text = _textController.text.trim();
+    if (text.isEmpty) return;
+    setState(() => _isOrganizing = true);
+    try {
+      final res = await ApiService.organizeText(
+        text: text,
+        filename: _sourceFilename ?? 'Pasted Material',
+      );
+      setState(() {
+        _documentId = res['document_id']?.toString() ?? _documentId ?? 'doc_${DateTime.now().millisecondsSinceEpoch}';
+        _documentTitle = res['title']?.toString() ?? _documentTitle;
+        _detectedSubject = res['subject']?.toString() ?? _detectedSubject;
+        final rawTopics = res['topics'] as List<dynamic>? ?? [];
+        _documentTopics = rawTopics.map((t) => t.toString()).toList();
+        _processingStatus = res['processing_status']?.toString() ?? 'completed';
+        _isOrganizing = false;
+      });
+      _notifyDocumentOrganized();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Organized as: ${_documentTitle ?? "Document"} (${_detectedSubject ?? "Unknown"})'),
+            backgroundColor: AppColors.emerald,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() => _isOrganizing = false);
+    }
+  }
+
+  void _showServerConfigDialog() {
+    final urlController = TextEditingController(text: ApiService.baseUrl);
+    bool testing = false;
+    String? statusMessage;
+    bool statusOk = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.settings_ethernet_rounded, color: AppColors.primary, size: 22),
+                SizedBox(width: 8),
+                Text(
+                  'Backend Connection',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'FastAPI server endpoint for mobile device:',
+                    style: TextStyle(fontSize: 12, color: AppColors.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: urlController,
+                    decoration: InputDecoration(
+                      labelText: 'Server Base URL',
+                      labelStyle: const TextStyle(fontSize: 12),
+                      hintText: 'http://127.0.0.1:8000',
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Quick Presets:',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      ActionChip(
+                        label: const Text('USB (adb reverse)', style: TextStyle(fontSize: 11)),
+                        onPressed: () {
+                          setDialogState(() {
+                            urlController.text = 'http://127.0.0.1:8000';
+                          });
+                        },
+                      ),
+                      ActionChip(
+                        label: const Text('Wi-Fi LAN', style: TextStyle(fontSize: 11)),
+                        onPressed: () {
+                          setDialogState(() {
+                            urlController.text = 'http://192.168.29.46:8000';
+                          });
+                        },
+                      ),
+                      ActionChip(
+                        label: const Text('Emulator', style: TextStyle(fontSize: 11)),
+                        onPressed: () {
+                          setDialogState(() {
+                            urlController.text = 'http://10.0.2.2:8000';
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                  if (statusMessage != null) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: statusOk ? AppColors.emeraldBg : AppColors.crimsonBg,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            statusOk ? Icons.check_circle : Icons.error_outline,
+                            size: 16,
+                            color: statusOk ? AppColors.emerald : AppColors.crimson,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              statusMessage!,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: statusOk ? AppColors.emerald : AppColors.crimson,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Close'),
+              ),
+              FilledButton(
+                onPressed: testing
+                    ? null
+                    : () async {
+                        final inputUrl = urlController.text.trim().replaceAll(RegExp(r'/+$'), '');
+                        if (inputUrl.isEmpty) return;
+                        setDialogState(() {
+                          testing = true;
+                          statusMessage = 'Connecting...';
+                          statusOk = false;
+                        });
+                        final oldUrl = ApiService.baseUrl;
+                        ApiService.baseUrl = inputUrl;
+                        try {
+                          final res = await ApiService.checkHealth();
+                          if (res['status'] == 'ok') {
+                            setDialogState(() {
+                              testing = false;
+                              statusOk = true;
+                              statusMessage = 'Connected! API is online.';
+                            });
+                            await Future.delayed(const Duration(milliseconds: 600));
+                            if (ctx.mounted) {
+                              Navigator.pop(ctx);
+                            }
+                          } else {
+                            throw Exception('Unexpected response');
+                          }
+                        } catch (e) {
+                          ApiService.baseUrl = oldUrl;
+                          setDialogState(() {
+                            testing = false;
+                            statusOk = false;
+                            statusMessage = 'Failed: $e';
+                          });
+                        }
+                      },
+                child: testing
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Text('Save & Connect'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   /// Pick image via camera, compress to lightweight size, upload for backend OCR
   Future<void> _captureFromCamera() async {
     try {
@@ -120,19 +420,32 @@ Key Takeaways:
       final bytes = await photo.readAsBytes();
       final res = await ApiService.extractFromBytes(bytes, photo.name);
       final text = res['extracted_text'] as String? ?? '';
+      final docId = res['document_id']?.toString() ?? 'doc_${DateTime.now().millisecondsSinceEpoch}';
+      final genTitle = res['generated_title']?.toString() ?? photo.name;
+      final detSubj = res['detected_subject']?.toString() ?? 'Unknown';
+      final rawTopics = res['topics'] as List<dynamic>? ?? [];
+      final topics = rawTopics.map((t) => t.toString()).toList();
+      final procStatus = res['processing_status']?.toString() ?? 'completed';
 
       setState(() {
         _textController.text = text;
         _extractionMethod = res['extraction_method'] as String? ?? res['method'] as String? ?? 'OCR';
+        _documentId = docId;
+        _documentTitle = genTitle;
+        _detectedSubject = detSubj;
+        _documentTopics = topics;
+        _processingStatus = procStatus;
         _capturedCount++;
         _isExtracting = false;
       });
+
+      _notifyDocumentOrganized();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Extracted ${text.length} characters using ${_extractionMethod!}!',
+              'Organized as "$genTitle" ($detSubj)!',
             ),
             backgroundColor: AppColors.emerald,
             behavior: SnackBarBehavior.floating,
@@ -187,18 +500,31 @@ Key Takeaways:
       final res = await ApiService.extractFromBytes(bytes, picked.name);
       final text = res['extracted_text'] as String? ?? '';
       final method = res['extraction_method'] as String? ?? res['method'] as String? ?? 'Document Parser';
+      final docId = res['document_id']?.toString() ?? 'doc_${DateTime.now().millisecondsSinceEpoch}';
+      final genTitle = res['generated_title']?.toString() ?? picked.name;
+      final detSubj = res['detected_subject']?.toString() ?? 'Unknown';
+      final rawTopics = res['topics'] as List<dynamic>? ?? [];
+      final topics = rawTopics.map((t) => t.toString()).toList();
+      final procStatus = res['processing_status']?.toString() ?? 'completed';
 
       setState(() {
         _textController.text = text;
         _extractionMethod = method;
+        _documentId = docId;
+        _documentTitle = genTitle;
+        _detectedSubject = detSubj;
+        _documentTopics = topics;
+        _processingStatus = procStatus;
         _isExtracting = false;
       });
+
+      _notifyDocumentOrganized();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Extracted ${text.length} characters from ${picked.name} ($method)!',
+              'Organized as "$genTitle" ($detSubj)!',
             ),
             backgroundColor: AppColors.emerald,
             behavior: SnackBarBehavior.floating,
@@ -253,6 +579,63 @@ Key Takeaways:
 
     setState(() => _isGenerating = true);
 
+    // Show loading modal dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          content: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryFixed.withValues(alpha: 0.5),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Center(
+                    child: SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3,
+                        valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Synthesizing Study Notes...',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Gemini AI is analyzing concepts, extracting definitions, and organizing exam pitfalls.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.onSurfaceVariant,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
     try {
       String? cleanTitle;
       if (_sourceFilename != null && _sourceFilename!.isNotEmpty) {
@@ -263,12 +646,22 @@ Key Takeaways:
             .trim();
       }
 
+      final titleToUse = _documentTitle ?? cleanTitle;
+      final subjectToUse = _detectedSubject ?? 'General';
+
       final note = await ApiService.generateNotes(
         text: text,
-        title: cleanTitle,
+        title: titleToUse,
+        courseName: subjectToUse,
       );
 
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+
       setState(() => _isGenerating = false);
+
+      _notifyDocumentOrganized(note: note);
 
       if (widget.onExportToNotes != null) {
         widget.onExportToNotes!(note);
@@ -276,6 +669,9 @@ Key Takeaways:
         widget.onNavigateToNotes!();
       }
     } catch (e) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
       setState(() => _isGenerating = false);
       if (mounted) {
         _showErrorDialog(
@@ -353,88 +749,54 @@ Key Takeaways:
             ),
           ),
           const SizedBox(width: 10),
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'StudyBuddy AI',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.onSurface,
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'StudyBuddy AI',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.onSurface,
+                  ),
                 ),
-              ),
-              Text(
-                'Scan And Import',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.onSurfaceVariant,
+                Text(
+                  'Scan And Import',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.onSurfaceVariant,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           InkWell(
-            onTap: _checkBackendStatus,
+            onTap: _showServerConfigDialog,
             borderRadius: BorderRadius.circular(20),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
-                color: _isBackendOnline == true
-                    ? AppColors.emeraldBg
-                    : AppColors.surfaceContainerLow,
+                color: AppColors.surfaceContainerLow,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: _isBackendOnline == true
-                      ? AppColors.emerald
-                      : AppColors.surfaceContainerHigh,
-                ),
+                border: Border.all(color: AppColors.surfaceContainerHigh),
               ),
-              child: Row(
+              child: const Row(
                 children: [
-                  Icon(
-                    Icons.circle,
-                    size: 7,
-                    color: _isBackendOnline == true
-                        ? AppColors.emerald
-                        : (_isBackendOnline == false ? AppColors.error : AppColors.amber),
-                  ),
-                  const SizedBox(width: 4),
+                  Text('🔥', style: TextStyle(fontSize: 13)),
+                  SizedBox(width: 4),
                   Text(
-                    _isBackendOnline == true ? 'AI Online' : 'AI Offline',
+                    '6 Days',
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 12,
                       fontWeight: FontWeight.w700,
-                      color: _isBackendOnline == true
-                          ? AppColors.emerald
-                          : AppColors.onSurfaceVariant,
+                      color: AppColors.primary,
                     ),
                   ),
                 ],
               ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceContainerLow,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppColors.surfaceContainerHigh),
-            ),
-            child: const Row(
-              children: [
-                Text('🔥', style: TextStyle(fontSize: 13)),
-                SizedBox(width: 4),
-                Text(
-                  '6 Days',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.primary,
-                  ),
-                ),
-              ],
             ),
           ),
         ],
@@ -547,12 +909,16 @@ Key Takeaways:
                 color: isSelected ? AppColors.primary : AppColors.onSurfaceVariant,
               ),
               const SizedBox(width: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                  color: isSelected ? AppColors.primary : AppColors.onSurfaceVariant,
+              Flexible(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                    color: isSelected ? AppColors.primary : AppColors.onSurfaceVariant,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
@@ -622,26 +988,33 @@ Key Takeaways:
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: AppColors.inverseSurface.withValues(alpha: 0.8),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.document_scanner_rounded,
-                              size: 14, color: AppColors.tertiaryFixed),
-                          SizedBox(width: 4),
-                          Text(
-                            'Auto Edge-Detect',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.inverseOnSurface,
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: AppColors.inverseSurface.withValues(alpha: 0.8),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.document_scanner_rounded,
+                                size: 14, color: AppColors.tertiaryFixed),
+                            SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                'Auto Edge-Detect',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.inverseOnSurface,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                     Row(
@@ -1173,17 +1546,14 @@ Key Takeaways:
                   if (_pasteController.text.trim().isNotEmpty) {
                     setState(() {
                       _textController.text = _pasteController.text;
+                      _sourceFilename = 'Pasted Material';
+                      _extractionMethod = 'Paste';
                     });
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Pasted text loaded into preview!'),
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
+                    _organizeCurrentText();
                   }
                 },
-                icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
-                label: const Text('Apply to Preview', style: TextStyle(fontSize: 12)),
+                icon: const Icon(Icons.auto_awesome_rounded, size: 16, color: AppColors.primary),
+                label: const Text('Apply & Organize with AI', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primary)),
               ),
             ],
           ),
@@ -1251,26 +1621,33 @@ Key Takeaways:
                 ),
               ),
               const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: AppColors.emeraldBg,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.auto_awesome_rounded,
-                        size: 13, color: AppColors.emerald),
-                    const SizedBox(width: 3),
-                    Text(
-                      _extractionMethod ?? 'Auto-cleaned OCR',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.emerald,
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: AppColors.emeraldBg,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.auto_awesome_rounded,
+                          size: 13, color: AppColors.emerald),
+                      const SizedBox(width: 3),
+                      Flexible(
+                        child: Text(
+                          _extractionMethod ?? 'Auto-cleaned OCR',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.emerald,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -1298,6 +1675,8 @@ Key Takeaways:
             ],
           ),
           const SizedBox(height: 12),
+          _buildSmartOrganizationCard(),
+          const SizedBox(height: 4),
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -1461,6 +1840,170 @@ Key Takeaways:
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSmartOrganizationCard() {
+    if (_documentTitle == null && _detectedSubject == null && !_isOrganizing && _textController.text.trim().isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppColors.primary.withValues(alpha: 0.25),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                child: Row(
+                  children: [
+                    const Icon(Icons.auto_awesome_rounded, size: 15, color: AppColors.primary),
+                    const SizedBox(width: 5),
+                    const Text(
+                      'SMART ORGANIZATION',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.primary,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    if (_processingStatus == 'fallback')
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceContainerHigh,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text('Fallback', style: TextStyle(fontSize: 9, color: AppColors.onSurfaceVariant)),
+                      )
+                    else if (_processingStatus == 'edited')
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryFixed,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text('Customized', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppColors.onPrimaryFixed)),
+                      ),
+                  ],
+                ),
+              ),
+              InkWell(
+                onTap: _showEditMetadataDialog,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.edit_rounded, size: 14, color: AppColors.primary),
+                      const SizedBox(width: 3),
+                      Text(
+                        'Edit',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_isOrganizing) ...[
+            const SizedBox(height: 8),
+            const LinearProgressIndicator(minHeight: 2),
+            const SizedBox(height: 6),
+            const Text('Identifying subject & organizing topics with Gemini AI...',
+                style: TextStyle(fontSize: 11, color: AppColors.onSurfaceVariant)),
+          ] else ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _documentTitle ?? (_sourceFilename != null ? _sourceFilename!.split('.').first : 'Study Material'),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.onSurface,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryFixed,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.school_rounded, size: 12, color: AppColors.onPrimaryFixed),
+                      const SizedBox(width: 4),
+                      Text(
+                        _detectedSubject ?? 'Unknown',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.onPrimaryFixed,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                ..._documentTopics.map((topic) => Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceContainerLow,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.surfaceContainerHigh),
+                      ),
+                      child: Text(
+                        '#$topic',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.onSurfaceVariant,
+                        ),
+                      ),
+                    )),
+              ],
+            ),
+          ],
         ],
       ),
     );

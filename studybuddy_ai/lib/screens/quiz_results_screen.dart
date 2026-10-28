@@ -6,14 +6,18 @@ import '../widgets/gradient_button.dart';
 
 class QuizResultsScreen extends StatefulWidget {
   final QuizResultSummary summary;
+  final String? quizTitle;
   final VoidCallback onRetake;
   final VoidCallback onBackToNotes;
+  final VoidCallback? onReturnHome;
 
   const QuizResultsScreen({
     super.key,
     required this.summary,
+    this.quizTitle,
     required this.onRetake,
     required this.onBackToNotes,
+    this.onReturnHome,
   });
 
   @override
@@ -49,51 +53,58 @@ class _QuizResultsScreenState extends State<QuizResultsScreen> {
     final seconds = summary.timeTaken.inSeconds % 60;
     final timeString = '${minutes}m ${seconds}s';
 
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildAppBar(),
-            Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildHeroSummaryCard(percentage, correct, total, timeString),
-                    const SizedBox(height: 20),
-                    _buildBreakdownHeader(total),
-                    const SizedBox(height: 10),
-                    _buildFilterPills(total, incorrectCount),
-                    const SizedBox(height: 14),
-                    ...filteredList.map((entry) {
-                      final idx = entry.key;
-                      final q = entry.value;
-                      final userAnswerIdx = summary.userAnswers[idx];
-                      final isCorrect = userAnswerIdx == q.correctOptionIndex;
-                      final isBookmarked = _bookmarkedQuestions.contains(idx);
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        widget.onBackToNotes();
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildAppBar(),
+              Expanded(
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildHeroSummaryCard(percentage, correct, total, timeString),
+                      const SizedBox(height: 20),
+                      _buildBreakdownHeader(total),
+                      const SizedBox(height: 10),
+                      _buildFilterPills(total, incorrectCount),
+                      const SizedBox(height: 14),
+                      ...filteredList.map((entry) {
+                        final idx = entry.key;
+                        final q = entry.value;
+                        final userAnswerIdx = summary.userAnswers[idx];
+                        final isCorrect = userAnswerIdx == q.correctOptionIndex;
+                        final isBookmarked = _bookmarkedQuestions.contains(idx);
 
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _buildQuestionReviewCard(
-                          questionIndex: idx,
-                          question: q,
-                          userAnswerIndex: userAnswerIdx,
-                          isCorrect: isCorrect,
-                          isBookmarked: isBookmarked,
-                        ),
-                      );
-                    }),
-                    const SizedBox(height: 12),
-                    _buildRecommendedDeckCard(),
-                    const SizedBox(height: 16),
-                  ],
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _buildQuestionReviewCard(
+                            questionIndex: idx,
+                            question: q,
+                            userAnswerIndex: userAnswerIdx,
+                            isCorrect: isCorrect,
+                            isBookmarked: isBookmarked,
+                          ),
+                        );
+                      }),
+                      const SizedBox(height: 12),
+                      _buildRecommendedDeckCard(),
+                      const SizedBox(height: 16),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            _buildStickyActionsBar(),
-          ],
+              _buildStickyActionsBar(),
+            ],
+          ),
         ),
       ),
     );
@@ -132,7 +143,7 @@ class _QuizResultsScreenState extends State<QuizResultsScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.close_rounded),
-            onPressed: widget.onBackToNotes,
+            onPressed: widget.onReturnHome ?? widget.onBackToNotes,
             style: IconButton.styleFrom(
               backgroundColor: AppColors.surfaceContainerHigh,
             ),
@@ -166,18 +177,21 @@ class _QuizResultsScreenState extends State<QuizResultsScreen> {
               color: AppColors.surfaceContainer,
               borderRadius: BorderRadius.circular(20),
             ),
-            child: const Row(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.auto_awesome_rounded,
+                const Icon(Icons.auto_awesome_rounded,
                     size: 14, color: AppColors.primary),
-                SizedBox(width: 4),
-                Text(
-                  'Cognitive Psychology • Quiz 04',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.primary,
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    widget.quizTitle ?? 'StudyBuddy Practice Quiz',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -216,7 +230,7 @@ class _QuizResultsScreenState extends State<QuizResultsScreen> {
           ),
           const SizedBox(height: 14),
           Text(
-            percentage >= 70 ? 'Great job, Alex! 🎉' : 'Keep practicing, Alex! 💪',
+            percentage >= 70 ? 'Great job! 🎉' : 'Keep practicing! 💪',
             style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w700,
@@ -226,8 +240,8 @@ class _QuizResultsScreenState extends State<QuizResultsScreen> {
           const SizedBox(height: 4),
           Text(
             percentage >= 70
-                ? "You've mastered core memory systems and sensory recall with high accuracy!"
-                : 'Review hippocampal consolidation and amnesia systems before your next session.',
+                ? "You've demonstrated solid recall of the core principles from this study material!"
+                : 'Review the flagged definitions and concepts below before your next study session.',
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 13,
@@ -319,12 +333,15 @@ class _QuizResultsScreenState extends State<QuizResultsScreen> {
             children: [
               Icon(icon, size: 14, color: iconColor),
               const SizedBox(width: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: iconColor,
+              Flexible(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: iconColor,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
@@ -337,6 +354,7 @@ class _QuizResultsScreenState extends State<QuizResultsScreen> {
               fontWeight: FontWeight.w700,
               color: AppColors.onSurface,
             ),
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -772,11 +790,11 @@ class _QuizResultsScreenState extends State<QuizResultsScreen> {
                 color: AppColors.primary, size: 24),
           ),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'Recommended Practice Deck',
                   style: TextStyle(
                     fontSize: 11,
@@ -784,21 +802,25 @@ class _QuizResultsScreenState extends State<QuizResultsScreen> {
                     color: AppColors.primary,
                   ),
                 ),
-                SizedBox(height: 1),
+                const SizedBox(height: 1),
                 Text(
-                  'Explicit vs. Implicit Drills',
-                  style: TextStyle(
+                  widget.quizTitle != null ? '${widget.quizTitle} Drills' : 'Key Concept Drills',
+                  style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                     color: AppColors.onSurface,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                Text(
-                  '8 flashcards • 4 min quick session',
+                const Text(
+                  'Active recall & reinforcement session',
                   style: TextStyle(
                     fontSize: 11,
                     color: AppColors.onSurfaceVariant,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -839,10 +861,31 @@ class _QuizResultsScreenState extends State<QuizResultsScreen> {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
+                    onPressed: widget.onReturnHome ?? widget.onBackToNotes,
+                    icon: const Icon(Icons.home_rounded, size: 16),
+                    label: const Text('Home',
+                        style: TextStyle(fontSize: 13),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.onSurface,
+                      side: const BorderSide(color: AppColors.surfaceContainerHigh),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
                     onPressed: widget.onRetake,
                     icon: const Icon(Icons.cached_rounded, size: 16),
-                    label: const Text('Retake Quiz',
-                        style: TextStyle(fontSize: 13)),
+                    label: const Text('Retake',
+                        style: TextStyle(fontSize: 13),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppColors.primary,
                       side: const BorderSide(color: AppColors.surfaceContainerHigh),
@@ -853,8 +896,9 @@ class _QuizResultsScreenState extends State<QuizResultsScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 Expanded(
+                  flex: 2,
                   child: GradientButton(
                     height: 48,
                     onPressed: widget.onBackToNotes,
@@ -864,12 +908,16 @@ class _QuizResultsScreenState extends State<QuizResultsScreen> {
                         Icon(Icons.menu_book_rounded,
                             size: 16, color: Colors.white),
                         SizedBox(width: 6),
-                        Text(
-                          'Back to Notes',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
+                        Flexible(
+                          child: Text(
+                            'Short Notes',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],

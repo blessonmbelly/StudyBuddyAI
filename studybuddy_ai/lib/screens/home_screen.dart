@@ -1,22 +1,32 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../models/note.dart';
-import '../data/sample_notes.dart';
+import '../models/study_document.dart';
 import '../widgets/metric_ring.dart';
 
 class HomeScreen extends StatefulWidget {
   final Function(int targetTab, {String? scanMode}) onNavigateTab;
-  final Function(NoteItem note) onOpenNote;
-  final VoidCallback onStartQuiz;
-  final VoidCallback onOpenChat;
+  final Function(StudyDocument doc)? onOpenDocumentNotes;
+  final Function(StudyDocument doc)? onStartDocumentQuiz;
+  final Function(StudyDocument doc)? onOpenDocumentChat;
+  final Function(StudyDocument doc)? onEditDocument;
+  final Function(NoteItem note)? onOpenNote;
+  final VoidCallback? onStartQuiz;
+  final VoidCallback? onOpenChat;
+  final List<StudyDocument> documents;
   final List<NoteItem>? notes;
 
   const HomeScreen({
     super.key,
     required this.onNavigateTab,
-    required this.onOpenNote,
-    required this.onStartQuiz,
-    required this.onOpenChat,
+    this.onOpenDocumentNotes,
+    this.onStartDocumentQuiz,
+    this.onOpenDocumentChat,
+    this.onEditDocument,
+    this.onOpenNote,
+    this.onStartQuiz,
+    this.onOpenChat,
+    this.documents = const [],
     this.notes,
   });
 
@@ -29,11 +39,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final allNotes = widget.notes ?? sampleStudyNotes;
-    final filteredNotes = _selectedCategory == 'all'
-        ? allNotes
-        : allNotes
-            .where((n) => n.category == _selectedCategory)
+    final documents = widget.documents;
+    final filteredDocs = _selectedCategory == 'all'
+        ? documents
+        : documents
+            .where((d) => d.subject.toLowerCase() == _selectedCategory.toLowerCase())
             .toList();
 
     return Scaffold(
@@ -57,16 +67,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 20),
                   _buildSmartImportSection(),
                   const SizedBox(height: 20),
-                  _buildCourseFilterChips(),
+                  _buildCourseFilterChips(documents),
                   const SizedBox(height: 16),
-                  _buildRecentMaterialsHeader(filteredNotes.length),
+                  _buildRecentMaterialsHeader(filteredDocs.length),
                   const SizedBox(height: 12),
-                  if (_selectedCategory == 'bio')
-                    _buildBiologyEmptyState()
+                  if (filteredDocs.isEmpty)
+                    _buildEmptyNotesCard()
                   else
-                    ...filteredNotes.map((note) => Padding(
+                    ...filteredDocs.map((doc) => Padding(
                           padding: const EdgeInsets.only(bottom: 14),
-                          child: _buildMaterialCard(note),
+                          child: _buildDocumentCard(doc),
                         )),
                   const SizedBox(height: 16),
                   _buildFloatingAiBuddyBanner(),
@@ -180,7 +190,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             const Expanded(
               child: Text(
-                'Good morning, Alex 👋',
+                'Welcome back 👋',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
@@ -215,13 +225,17 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         const SizedBox(height: 4),
-        const Text(
-          'Ready to ace Cognitive Psychology today?',
-          style: TextStyle(
+        Text(
+          widget.documents.isNotEmpty
+              ? 'Ready to master ${widget.documents.first.subject} (${widget.documents.first.title})?'
+              : 'Scan or import lecture material to start studying with AI.',
+          style: const TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w400,
             color: AppColors.onSurfaceVariant,
           ),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
         ),
       ],
     );
@@ -382,11 +396,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 color: AppColors.onSurface,
               ),
             ),
-            Text(
-              'Powered by Vision OCR',
-              style: TextStyle(
-                fontSize: 11,
-                color: AppColors.onSurfaceVariant,
+            Flexible(
+              child: Text(
+                'Powered by Vision OCR',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: AppColors.onSurfaceVariant,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
@@ -501,29 +518,33 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildCourseFilterChips() {
-    final chips = [
-      {'key': 'all', 'label': 'All Courses'},
-      {'key': 'psych', 'label': 'Psychology 201'},
-      {'key': 'chem', 'label': 'Chem 302'},
-      {'key': 'econ', 'label': 'Econ 101'},
-      {'key': 'bio', 'label': 'Biology'},
-    ];
+  Widget _buildCourseFilterChips(List<StudyDocument> documents) {
+    final subjects = <String>['all'];
+    for (final doc in documents) {
+      if (doc.subject.isNotEmpty && !subjects.any((s) => s.toLowerCase() == doc.subject.toLowerCase())) {
+        subjects.add(doc.subject);
+      }
+    }
+
+    if (subjects.length <= 1) {
+      return const SizedBox.shrink();
+    }
 
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       physics: const BouncingScrollPhysics(),
       child: Row(
-        children: chips.map((c) {
-          final isSelected = _selectedCategory == c['key'];
+        children: subjects.map((subj) {
+          final isSelected = _selectedCategory.toLowerCase() == subj.toLowerCase();
+          final label = subj == 'all' ? 'All Subjects' : subj;
           return Padding(
             padding: const EdgeInsets.only(right: 8),
             child: ChoiceChip(
-              label: Text(c['label']!),
+              label: Text(label),
               selected: isSelected,
               onSelected: (_) {
                 setState(() {
-                  _selectedCategory = c['key']!;
+                  _selectedCategory = subj;
                 });
               },
               backgroundColor: AppColors.surfaceContainerLowest,
@@ -554,33 +575,38 @@ class _HomeScreenState extends State<HomeScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Row(
-          children: [
-            const Text(
-              'Recent Study Materials',
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                color: AppColors.onSurface,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: AppColors.primaryFixed,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                '$count Active',
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.onPrimaryFixed,
+        Expanded(
+          child: Row(
+            children: [
+              const Flexible(
+                child: Text(
+                  'Recent Study Materials',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.onSurface,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-            ),
-          ],
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryFixed,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$count Active',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.onPrimaryFixed,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
         TextButton(
           onPressed: () => widget.onNavigateTab(2),
@@ -597,7 +623,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildMaterialCard(NoteItem note) {
+  Widget _buildDocumentCard(StudyDocument doc) {
+    final hasNotes = doc.generatedNote != null;
+    final hasQuiz = doc.generatedQuiz != null;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -618,55 +647,50 @@ class _HomeScreenState extends State<HomeScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: note.category == 'psych'
-                          ? AppColors.secondaryFixed
-                          : (note.category == 'chem'
-                              ? AppColors.surfaceContainerHighest
-                              : AppColors.surfaceContainerHigh),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      note.courseName,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: note.category == 'psych'
-                            ? AppColors.onSecondaryFixedVariant
-                            : AppColors.onSurface,
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryFixed,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        doc.subject,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.onPrimaryFixed,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    note.timeAgo,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.onSurfaceVariant,
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        doc.originalFilename,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.onSurfaceVariant,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               IconButton(
-                icon: Icon(
-                  note.isBookmarked
-                      ? Icons.bookmark_rounded
-                      : Icons.bookmark_border_rounded,
-                  size: 20,
-                  color: note.isBookmarked
-                      ? AppColors.primary
-                      : AppColors.onSurfaceVariant,
+                icon: const Icon(
+                  Icons.edit_outlined,
+                  size: 18,
+                  color: AppColors.onSurfaceVariant,
                 ),
-                onPressed: () {
-                  setState(() {
-                    note.isBookmarked = !note.isBookmarked;
-                  });
-                },
+                tooltip: 'Edit Title & Subject',
+                onPressed: () => _showEditDocumentDialog(doc),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
               ),
@@ -674,7 +698,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 10),
           Text(
-            note.title,
+            doc.title,
             style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
@@ -682,15 +706,34 @@ class _HomeScreenState extends State<HomeScreen> {
               height: 1.25,
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            note.summary,
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.onSurfaceVariant,
-              height: 1.35,
+          if (doc.topics.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: doc.topics.map((topic) {
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: AppColors.surfaceContainerHigh,
+                      width: 0.5,
+                    ),
+                  ),
+                  child: Text(
+                    topic,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.onSurfaceVariant,
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
-          ),
+          ],
           const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -699,32 +742,37 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Row(
                   children: [
                     const Icon(
-                      Icons.verified_rounded,
+                      Icons.description_outlined,
                       size: 15,
-                      color: AppColors.emerald,
+                      color: AppColors.primary,
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      '${note.accuracyPercent}% recall',
+                      '${doc.wordCount} words',
                       style: const TextStyle(
                         fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.emerald,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
                       ),
                     ),
                     const SizedBox(width: 8),
                     const Icon(
-                      Icons.style_rounded,
-                      size: 15,
-                      color: AppColors.outline,
+                      Icons.auto_awesome_rounded,
+                      size: 14,
+                      color: AppColors.emerald,
                     ),
                     const SizedBox(width: 4),
                     Flexible(
                       child: Text(
-                        '${note.keyTermsCount} terms',
+                        hasNotes && hasQuiz
+                            ? 'Ready'
+                            : (hasNotes
+                                ? 'Notes ready'
+                                : (hasQuiz ? 'Quiz ready' : 'OCR ready')),
                         style: const TextStyle(
                           fontSize: 11,
-                          color: AppColors.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.emerald,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -733,38 +781,66 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              ElevatedButton.icon(
-                onPressed: () {
-                  if (note.category == 'chem') {
-                    widget.onStartQuiz();
-                  } else {
-                    widget.onOpenNote(note);
-                  }
-                },
-                icon: Icon(
-                  note.category == 'chem'
-                      ? Icons.play_arrow_rounded
-                      : Icons.arrow_forward_rounded,
-                  size: 14,
-                  color: AppColors.primary,
-                ),
-                label: Text(
-                  note.category == 'chem' ? 'Quiz me' : 'Study',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.primary,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      widget.onOpenDocumentNotes?.call(doc);
+                    },
+                    icon: const Icon(
+                      Icons.menu_book_rounded,
+                      size: 13,
+                      color: AppColors.primary,
+                    ),
+                    label: const Text(
+                      'Notes',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor:
+                          AppColors.primaryFixed.withValues(alpha: 0.5),
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
                   ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primaryFixed.withValues(alpha: 0.5),
-                  elevation: 0,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
+                  const SizedBox(width: 6),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      widget.onStartDocumentQuiz?.call(doc);
+                    },
+                    icon: const Icon(
+                      Icons.play_arrow_rounded,
+                      size: 14,
+                      color: Colors.white,
+                    ),
+                    label: const Text(
+                      'Quiz',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
             ],
           ),
@@ -773,7 +849,120 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildBiologyEmptyState() {
+  void _showEditDocumentDialog(StudyDocument doc) {
+    final titleController = TextEditingController(text: doc.title);
+    final subjectController = TextEditingController(text: doc.subject);
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: AppColors.surfaceContainerLowest,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.edit_note_rounded, color: AppColors.primary),
+            SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                'Edit Document Info',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Document Title',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 6),
+            TextField(
+              controller: titleController,
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: AppColors.surfaceContainerLow,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Subject / Course',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 6),
+            TextField(
+              controller: subjectController,
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: AppColors.surfaceContainerLow,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final newTitle = titleController.text.trim();
+              final newSubject = subjectController.text.trim();
+              if (newTitle.isNotEmpty) {
+                final updated = doc.copyWith(
+                  title: newTitle,
+                  subject: newSubject.isNotEmpty ? newSubject : 'Unknown',
+                );
+                widget.onEditDocument?.call(updated);
+                setState(() {});
+              }
+              Navigator.of(dialogCtx).pop();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyNotesCard() {
+    final catName = _selectedCategory == 'all'
+        ? 'your library'
+        : _selectedCategory;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       decoration: BoxDecoration(
@@ -791,15 +980,17 @@ class _HomeScreenState extends State<HomeScreen> {
               shape: BoxShape.circle,
             ),
             child: const Icon(
-              Icons.biotech_rounded,
+              Icons.auto_stories_rounded,
               color: AppColors.primary,
               size: 28,
             ),
           ),
           const SizedBox(height: 12),
-          const Text(
-            'No study sets in "Biology"',
-            style: TextStyle(
+          Text(
+            _selectedCategory == 'all'
+                ? 'No study materials imported yet'
+                : 'No study sets in "$catName"',
+            style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
               color: AppColors.onSurface,
@@ -807,7 +998,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Tap + to snap a photo of your bio lab notes or import chapter slides.',
+            'Scan lecture notes, upload chapter slides, or paste text to generate structured study decks with Gemini AI.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 12,
@@ -819,7 +1010,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () => widget.onNavigateTab(1, scanMode: 'camera'),
             icon: const Icon(Icons.add, size: 16, color: Colors.white),
             label: const Text(
-              'Create Biology Set',
+              'Scan or Import Document',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
@@ -828,6 +1019,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
               ),

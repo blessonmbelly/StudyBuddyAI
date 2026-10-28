@@ -22,8 +22,8 @@ async def generate_notes(req: NoteGenerateRequest):
 
     notes = generate_study_notes(
         text=cleaned_text,
-        course_code=req.course_code or "PSYC 201",
-        course_name=req.course_name or "Cognitive Psychology",
+        course_code=req.course_code,
+        course_name=req.course_name,
         title=req.title,
     )
     return notes

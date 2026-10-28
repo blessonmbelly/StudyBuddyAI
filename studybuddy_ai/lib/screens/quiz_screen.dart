@@ -9,12 +9,16 @@ class QuizScreen extends StatefulWidget {
   final List<QuizQuestion>? questions;
   final String? quizTitle;
   final VoidCallback? onQuit;
+  final VoidCallback? onReturnHome;
+  final VoidCallback? onReturnNotes;
 
   const QuizScreen({
     super.key,
     this.questions,
     this.quizTitle,
     this.onQuit,
+    this.onReturnHome,
+    this.onReturnNotes,
   });
 
   @override
@@ -90,6 +94,57 @@ class _QuizScreenState extends State<QuizScreen> {
     }
   }
 
+  Future<void> _handleQuitPrompt() async {
+    final shouldQuit = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.help_outline_rounded, color: AppColors.primary, size: 24),
+            SizedBox(width: 8),
+            Text('Exit Quiz?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          ],
+        ),
+        content: const Text(
+          'Your current quiz progress will not be saved. Where would you like to return?',
+          style: TextStyle(fontSize: 13, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Resume Quiz'),
+          ),
+          if (widget.onReturnHome != null)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx, true);
+                widget.onReturnHome!();
+              },
+              child: const Text('Go to Home', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
+            ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx, true);
+              if (widget.onReturnNotes != null) {
+                widget.onReturnNotes!();
+              } else if (widget.onQuit != null) {
+                widget.onQuit!();
+              } else {
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Exit to Notes', style: TextStyle(color: AppColors.error, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldQuit == true && mounted) {
+      _timer.cancel();
+    }
+  }
+
   void _submitQuiz() {
     _timer.cancel();
     final summary = QuizResultSummary(
@@ -103,20 +158,29 @@ class _QuizScreenState extends State<QuizScreen> {
       MaterialPageRoute(
         builder: (_) => QuizResultsScreen(
           summary: summary,
+          quizTitle: widget.quizTitle,
           onRetake: () {
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
                 builder: (_) => QuizScreen(
-                  questions: widget.questions,
+                  questions: _questions,
                   quizTitle: widget.quizTitle,
+                  onQuit: widget.onQuit,
+                  onReturnHome: widget.onReturnHome,
+                  onReturnNotes: widget.onReturnNotes,
                 ),
               ),
             );
           },
           onBackToNotes: () {
-            Navigator.pop(context);
+            if (widget.onReturnNotes != null) {
+              widget.onReturnNotes!();
+            } else {
+              Navigator.pop(context);
+            }
           },
+          onReturnHome: widget.onReturnHome,
         ),
       ),
     );
@@ -129,10 +193,16 @@ class _QuizScreenState extends State<QuizScreen> {
     final progress = (_currentIndex + 1) / _questions.length;
     final unansweredCount = _questions.length - _userAnswers.length;
 
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _handleQuitPrompt();
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: Column(
+            children: [
             _buildTopBar(),
             _buildProgressBar(progress),
             _buildQuickNavigator(),
@@ -157,8 +227,9 @@ class _QuizScreenState extends State<QuizScreen> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildTopBar() {
     return Container(
@@ -171,13 +242,7 @@ class _QuizScreenState extends State<QuizScreen> {
               children: [
                 IconButton(
                   icon: const Icon(Icons.close_rounded),
-                  onPressed: () {
-                    if (widget.onQuit != null) {
-                      widget.onQuit!();
-                    } else {
-                      Navigator.pop(context);
-                    }
-                  },
+                  onPressed: _handleQuitPrompt,
                   style: IconButton.styleFrom(
                     backgroundColor: AppColors.surfaceContainerHigh,
                   ),
@@ -253,21 +318,27 @@ class _QuizScreenState extends State<QuizScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  const Icon(Icons.bolt_rounded,
-                      size: 16, color: AppColors.primary),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Question ${_currentIndex + 1} of ${_questions.length}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.onSurface,
+              Expanded(
+                child: Row(
+                  children: [
+                    const Icon(Icons.bolt_rounded,
+                        size: 16, color: AppColors.primary),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        'Question ${_currentIndex + 1} of ${_questions.length}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.onSurface,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               Text(
                 '${(progress * 100).round()}% Complete',
                 style: const TextStyle(
@@ -302,70 +373,78 @@ class _QuizScreenState extends State<QuizScreen> {
   }
 
   Widget _buildQuickNavigator() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Row(
-        children: List.generate(_questions.length, (index) {
-          final isCurrent = index == _currentIndex;
-          final isAnswered = _userAnswers.containsKey(index);
+    final navItems = List.generate(_questions.length, (index) {
+      final isCurrent = index == _currentIndex;
+      final isAnswered = _userAnswers.containsKey(index);
 
-          return Expanded(
-            child: InkWell(
-              onTap: () {
-                setState(() {
-                  _currentIndex = index;
-                });
-              },
-              borderRadius: BorderRadius.circular(8),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                height: 36,
-                margin: EdgeInsets.only(
-                    right: index < _questions.length - 1 ? 6 : 0),
-                decoration: BoxDecoration(
-                  color: isCurrent
-                      ? AppColors.primary
-                      : (isAnswered
-                          ? AppColors.surfaceContainerHigh
-                          : AppColors.surfaceContainerLow),
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: isCurrent
-                      ? [
-                          BoxShadow(
-                            color: AppColors.primary.withValues(alpha: 0.3),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      '${index + 1}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: isCurrent
-                            ? Colors.white
-                            : (isAnswered
-                                ? AppColors.onSurface
-                                : AppColors.onSurfaceVariant),
-                      ),
+      final buttonWidget = InkWell(
+        onTap: () {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          height: 36,
+          margin: EdgeInsets.only(
+              right: index < _questions.length - 1 ? 6 : 0),
+          decoration: BoxDecoration(
+            color: isCurrent
+                ? AppColors.primary
+                : (isAnswered
+                    ? AppColors.surfaceContainerHigh
+                    : AppColors.surfaceContainerLow),
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: isCurrent
+                ? [
+                    BoxShadow(
+                      color: AppColors.primary.withValues(alpha: 0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
                     ),
-                    if (isAnswered && !isCurrent) ...[
-                      const SizedBox(width: 3),
-                      const Icon(Icons.check_circle_rounded,
-                          size: 13, color: AppColors.emerald),
-                    ],
-                  ],
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                '${index + 1}',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: isCurrent
+                      ? Colors.white
+                      : (isAnswered
+                          ? AppColors.onSurface
+                          : AppColors.onSurfaceVariant),
                 ),
               ),
+              if (isAnswered && !isCurrent) ...[
+                const SizedBox(width: 3),
+                const Icon(Icons.check_circle_rounded,
+                    size: 13, color: AppColors.emerald),
+              ],
+            ],
+          ),
+        ),
+      );
+
+      return _questions.length <= 6
+          ? Expanded(child: buttonWidget)
+          : SizedBox(width: 48, child: buttonWidget);
+    });
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: _questions.length <= 6
+          ? Row(children: navItems)
+          : SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: Row(children: navItems),
             ),
-          );
-        }),
-      ),
     );
   }
 
@@ -695,7 +774,7 @@ class _QuizScreenState extends State<QuizScreen> {
                   child: OutlinedButton.icon(
                     onPressed: _currentIndex > 0 ? _goToPrevious : null,
                     icon: const Icon(Icons.arrow_back_rounded, size: 16),
-                    label: const Text('Previous'),
+                    label: const Text('Previous', maxLines: 1, overflow: TextOverflow.ellipsis),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       side: const BorderSide(color: AppColors.surfaceContainerHigh),
@@ -724,6 +803,8 @@ class _QuizScreenState extends State<QuizScreen> {
                         fontWeight: FontWeight.w700,
                         color: Colors.white,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,

@@ -3,7 +3,6 @@ import '../theme/app_theme.dart';
 import '../models/note.dart';
 import '../models/quiz_question.dart';
 import '../services/api_service.dart';
-import '../data/sample_notes.dart';
 import '../widgets/gradient_button.dart';
 
 class ShortNotesScreen extends StatefulWidget {
@@ -11,6 +10,7 @@ class ShortNotesScreen extends StatefulWidget {
   final void Function([List<QuizQuestion>? questions, String? quizTitle]) onStartQuiz;
   final void Function(NoteItem note) onChatWithNote;
   final VoidCallback? onBack;
+  final VoidCallback? onNavigateToScan;
 
   const ShortNotesScreen({
     super.key,
@@ -18,6 +18,7 @@ class ShortNotesScreen extends StatefulWidget {
     required this.onStartQuiz,
     required this.onChatWithNote,
     this.onBack,
+    this.onNavigateToScan,
   });
 
   @override
@@ -25,52 +26,54 @@ class ShortNotesScreen extends StatefulWidget {
 }
 
 class _ShortNotesScreenState extends State<ShortNotesScreen> {
-  late NoteItem _note;
+  NoteItem? _note;
   bool _isTranscriptExpanded = false;
   bool _isGeneratingQuiz = false;
 
   @override
   void initState() {
     super.initState();
-    _note = widget.note ?? sampleStudyNotes.first;
+    _note = widget.note;
   }
 
   @override
   void didUpdateWidget(covariant ShortNotesScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.note != null && widget.note != _note) {
-      _note = widget.note!;
+    if (widget.note != _note) {
+      setState(() {
+        _note = widget.note;
+      });
     }
   }
 
   Future<void> _generateAndStartQuiz() async {
+    if (_note == null) return;
     setState(() => _isGeneratingQuiz = true);
     try {
-      final text = _note.rawTranscript.isNotEmpty
-          ? _note.rawTranscript
-          : '${_note.title}\n${_note.summary}\n${_note.definitions.join("\n")}';
+      final text = _note!.rawTranscript.isNotEmpty
+          ? _note!.rawTranscript
+          : '${_note!.title}\n${_note!.summary}\n${_note!.definitions.join("\n")}';
 
       final questions = await ApiService.generateQuiz(
         text: text,
         numQuestions: 5,
-        noteTitle: _note.title,
+        noteTitle: _note!.title,
       );
 
       setState(() => _isGeneratingQuiz = false);
-
-      widget.onStartQuiz(questions, _note.title);
+      widget.onStartQuiz(questions, _note!.title);
     } catch (e) {
       setState(() => _isGeneratingQuiz = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Quiz note: ${e.toString().replaceAll("Exception: ", "")}. Starting quiz mode.',
+              'Quiz notice: ${e.toString().replaceAll("Exception: ", "")}. Starting quiz mode.',
             ),
             behavior: SnackBarBehavior.floating,
           ),
         );
-        widget.onStartQuiz(null, _note.title);
+        widget.onStartQuiz(null, _note!.title);
       }
     }
   }
@@ -78,37 +81,110 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
       body: SafeArea(
         child: Column(
           children: [
             _buildAppBar(),
-            _buildAuxiliaryContextBar(),
+            if (_note != null) _buildAuxiliaryContextBar(),
             Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildDigestBanner(),
-                    const SizedBox(height: 12),
-                    _buildMetaPillsRow(),
-                    const SizedBox(height: 16),
-                    _buildDualStoreSection(),
-                    const SizedBox(height: 16),
-                    _buildKeyDefinitionsSection(),
-                    const SizedBox(height: 16),
-                    _buildExamPitfallsSection(),
-                    const SizedBox(height: 16),
-                    _buildRawTranscriptCollapsible(),
-                    const SizedBox(height: 16),
-                    _buildRetentionFeedbackCard(),
-                    const SizedBox(height: 16),
-                  ],
-                ),
+              child: _note == null
+                  ? _buildEmptyState()
+                  : SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildDigestBanner(),
+                          const SizedBox(height: 12),
+                          _buildMetaPillsRow(),
+                          const SizedBox(height: 16),
+                          _buildSummarySection(),
+                          const SizedBox(height: 16),
+                          ..._buildDynamicSections(),
+                          _buildKeyDefinitionsSection(),
+                          const SizedBox(height: 16),
+                          _buildExamPitfallsSection(),
+                          const SizedBox(height: 16),
+                          _buildRawTranscriptCollapsible(),
+                          const SizedBox(height: 16),
+                          _buildRetentionFeedbackCard(),
+                          const SizedBox(height: 20),
+                        ],
+                      ),
+                    ),
+            ),
+            if (_note != null) _buildStickyBottomDock(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: AppColors.primaryFixed.withValues(alpha: 0.6),
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.primaryLight.withValues(alpha: 0.3), width: 2),
+              ),
+              child: const Icon(
+                Icons.auto_stories_rounded,
+                color: AppColors.primary,
+                size: 40,
               ),
             ),
-            _buildStickyBottomDock(),
+            const SizedBox(height: 20),
+            const Text(
+              'No Study Deck Selected',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: AppColors.onSurface,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Synthesize structured study notes with headings, key definitions, and exam pitfalls dynamically from your lecture slides, textbook photos, or pasted text.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: AppColors.onSurfaceVariant,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 24),
+            GradientButton(
+              height: 48,
+              onPressed: widget.onNavigateToScan,
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.add_photo_alternate_rounded, color: Colors.white, size: 18),
+                  SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      'Scan or Import Study Material',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -154,18 +230,22 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
             ),
           ),
           const Spacer(),
-          CircleAvatar(
-            radius: 16,
-            backgroundColor: AppColors.primaryFixed,
-            child: const Text(
-              'A',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: AppColors.onPrimaryFixed,
+          if (_note != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.primaryFixed,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                _note!.courseCode,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.onPrimaryFixed,
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -178,71 +258,58 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Row(
-            children: [
-              Icon(Icons.auto_awesome_rounded,
-                  size: 16, color: AppColors.primary),
-              SizedBox(width: 6),
-              Text(
-                'AI SYNTHESIS VERIFIED',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.primary,
-                  letterSpacing: 0.5,
+          Flexible(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.auto_awesome_rounded,
+                    size: 16, color: AppColors.primary),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    'AI SYNTHESIS VERIFIED',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primary,
+                      letterSpacing: 0.5,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           Row(
             children: [
               InkWell(
                 onTap: () {
                   setState(() {
-                    _note.isBookmarked = !_note.isBookmarked;
+                    _note!.isBookmarked = !_note!.isBookmarked;
                   });
-                },
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  width: 32,
-                  height: 32,
-                  decoration: const BoxDecoration(
-                    color: AppColors.surfaceContainerLowest,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    _note.isBookmarked
-                        ? Icons.bookmark_rounded
-                        : Icons.bookmark_border_rounded,
-                    size: 18,
-                    color: _note.isBookmarked
-                        ? AppColors.primary
-                        : AppColors.onSurfaceVariant,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              InkWell(
-                onTap: () {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Note summary link copied to clipboard!'),
+                    SnackBar(
+                      content: Text(
+                        _note!.isBookmarked
+                            ? 'Bookmarked for quick review'
+                            : 'Bookmark removed',
+                      ),
+                      duration: const Duration(seconds: 1),
                       behavior: SnackBarBehavior.floating,
                     ),
                   );
                 },
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  width: 32,
-                  height: 32,
-                  decoration: const BoxDecoration(
-                    color: AppColors.surfaceContainerLowest,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.share_rounded,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    _note!.isBookmarked
+                        ? Icons.bookmark_rounded
+                        : Icons.bookmark_border_rounded,
                     size: 18,
-                    color: AppColors.onSurfaceVariant,
+                    color: _note!.isBookmarked
+                        ? AppColors.primary
+                        : AppColors.onSurfaceVariant,
                   ),
                 ),
               ),
@@ -255,55 +322,80 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
 
   Widget _buildDigestBanner() {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.surfaceContainer,
+        color: AppColors.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.surfaceContainerHigh),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 52,
-            height: 52,
+            width: 48,
+            height: 48,
             decoration: BoxDecoration(
-              gradient: AppColors.accentGradient,
+              gradient: AppColors.primaryGradient,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(Icons.psychology_rounded,
-                color: Colors.white, size: 28),
+            child: const Icon(Icons.school_rounded,
+                color: Colors.white, size: 24),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'SCANNED DOCUMENT • OCT 14',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.primary,
-                    letterSpacing: 0.5,
-                  ),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryFixed,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        _note!.courseCode,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.onPrimaryFixed,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _note!.courseName,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.onSurfaceVariant,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 6),
                 Text(
-                  _note.title,
+                  _note!.title,
                   style: const TextStyle(
-                    fontSize: 15,
+                    fontSize: 16,
                     fontWeight: FontWeight.w700,
                     color: AppColors.onSurface,
+                    height: 1.25,
                   ),
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 1),
-                const Text(
-                  'Synthesized from 14 handwritten slides & audio',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppColors.onSurfaceVariant,
-                  ),
                 ),
               ],
             ),
@@ -318,11 +410,13 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
       spacing: 6,
       runSpacing: 6,
       children: [
-        _buildPill(Icons.bolt_rounded, 'AI Condensed • 6 min read',
+        _buildPill(Icons.bolt_rounded, 'AI Condensed • ${_note!.readTime}',
             AppColors.primaryFixed, AppColors.onPrimaryFixed),
-        _buildPill(Icons.school_rounded, _note.courseCode,
+        _buildPill(Icons.school_rounded, _note!.courseCode,
             AppColors.surfaceContainerHigh, AppColors.onSurfaceVariant),
-        _buildPill(Icons.document_scanner_rounded, 'Lecture 4 OCR',
+        _buildPill(Icons.check_circle_outline_rounded, '${_note!.accuracyPercent}% Density',
+            AppColors.emeraldBg, AppColors.emerald),
+        _buildPill(Icons.format_list_bulleted_rounded, '${_note!.keyTermsCount} Key Terms',
             AppColors.surfaceContainerHigh, AppColors.onSurfaceVariant),
       ],
     );
@@ -354,103 +448,130 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
     );
   }
 
-  Widget _buildDualStoreSection() {
+  Widget _buildSummarySection() {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(20),
+        color: AppColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppColors.surfaceContainerHigh),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primaryContainer.withValues(alpha: 0.04),
-            blurRadius: 14,
-            offset: const Offset(0, 3),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          const Row(
             children: [
-              Container(
-                width: 22,
-                height: 22,
-                decoration: const BoxDecoration(
-                  color: AppColors.primary,
-                  shape: BoxShape.circle,
-                ),
-                child: const Center(
-                  child: Text(
-                    '1',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              const Expanded(
-                child: Text(
-                  'Dual-Store Memory Model',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.onSurface,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: AppColors.secondaryFixed,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Text(
-                  'Core Theory',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.onSecondaryFixedVariant,
-                  ),
+              Icon(Icons.summarize_rounded, size: 18, color: AppColors.primary),
+              SizedBox(width: 8),
+              Text(
+                'Executive Summary',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.onSurface,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          const Text(
-            "Atkinson & Shiffrin's multistore architecture detailing structural memory stages:",
-            style: TextStyle(fontSize: 12, color: AppColors.onSurfaceVariant),
-          ),
-          const SizedBox(height: 12),
-          _buildBulletItem(
-            icon: Icons.visibility_rounded,
-            term: 'Sensory Memory',
-            desc:
-                'Holds raw sensory stimuli for milliseconds (iconic visual & echoic auditory storage).',
-          ),
-          const SizedBox(height: 8),
-          _buildBulletItem(
-            icon: Icons.timer_rounded,
-            term: 'Short-Term Memory (STM)',
-            desc:
-                'Limited capacity (7 ± 2 chunks), duration ~20–30s without active rehearsal.',
-          ),
-          const SizedBox(height: 8),
-          _buildBulletItem(
-            icon: Icons.all_inclusive_rounded,
-            term: 'Long-Term Memory (LTM)',
-            desc:
-                'Potentially limitless capacity with dense semantic organization and associative indexing.',
+          Text(
+            _note!.summary,
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppColors.onSurface,
+              height: 1.45,
+            ),
           ),
         ],
       ),
     );
+  }
+
+  List<Widget> _buildDynamicSections() {
+    final widgets = <Widget>[];
+    for (int i = 0; i < _note!.sections.length; i++) {
+      final section = _note!.sections[i];
+      widgets.add(
+        Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceContainerLowest,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.surfaceContainerHigh),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primaryContainer.withValues(alpha: 0.04),
+                blurRadius: 14,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 24,
+                    height: 24,
+                    decoration: const BoxDecoration(
+                      color: AppColors.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${i + 1}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      section.title,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.onSurface,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (section.description.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  section.description,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.onSurfaceVariant,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+              if (section.bullets.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                ...section.bullets.map((b) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _buildBulletItem(
+                    icon: _getIconForName(b.iconName),
+                    term: b.term,
+                    desc: b.definition,
+                  ),
+                )),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+    return widgets;
   }
 
   Widget _buildBulletItem({
@@ -489,13 +610,13 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
                     color: AppColors.onSurface,
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 Text(
                   desc,
                   style: const TextStyle(
                     fontSize: 12,
                     color: AppColors.onSurfaceVariant,
-                    height: 1.3,
+                    height: 1.35,
                   ),
                 ),
               ],
@@ -507,6 +628,19 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
   }
 
   Widget _buildKeyDefinitionsSection() {
+    if (_note!.keyDefinitions.isEmpty && _note!.definitions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final items = _note!.keyDefinitions.isNotEmpty
+        ? _note!.keyDefinitions
+        : _note!.definitions.map((d) {
+            final parts = d.split(':');
+            final term = parts.first.trim();
+            final body = parts.length > 1 ? parts.sublist(1).join(':').trim() : d;
+            return KeyDefinitionItem(title: term, tag: 'Core Concept', body: body);
+          }).toList();
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -519,51 +653,45 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
           Row(
             children: [
               Container(
-                width: 22,
-                height: 22,
+                width: 24,
+                height: 24,
                 decoration: const BoxDecoration(
                   color: AppColors.primary,
                   shape: BoxShape.circle,
                 ),
                 child: const Center(
-                  child: Text(
-                    '2',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
+                  child: Icon(Icons.menu_book_rounded, color: Colors.white, size: 14),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               const Text(
                 'Key Definitions',
                 style: TextStyle(
-                  fontSize: 16,
+                  fontSize: 15,
                   fontWeight: FontWeight.w700,
                   color: AppColors.onSurface,
                 ),
               ),
               const Spacer(),
-              const Icon(Icons.psychology_rounded,
-                  size: 20, color: AppColors.primary),
+              Text(
+                '${items.length} Terms',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primary,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 12),
-          _buildDefinitionCard(
-            title: 'Encoding Specificity',
-            tag: 'Tulving (1973)',
-            body:
-                'Retrieval is most effective when retrieval cues match the exact environmental and cognitive context present during initial encoding.',
-          ),
-          const SizedBox(height: 8),
-          _buildDefinitionCard(
-            title: 'Consolidation',
-            tag: 'Synaptic & Systems',
-            body:
-                'The biological process by which fragile, labile memories stabilize and transform into enduring, permanent neural traces within the neocortex.',
-          ),
+          ...items.map((kd) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _buildDefinitionCard(
+              title: kd.title,
+              tag: kd.tag,
+              body: kd.body,
+            ),
+          )),
         ],
       ),
     );
@@ -605,23 +733,29 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceContainer,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  tag,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: AppColors.onSurfaceVariant,
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 130),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceContainer,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    tag,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.onSurfaceVariant,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
             body,
             style: const TextStyle(
@@ -636,6 +770,10 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
   }
 
   Widget _buildExamPitfallsSection() {
+    final pitfalls = _note!.examPitfalls;
+    final hasPitfalls = pitfalls.isNotEmpty || _note!.examPitfall.isNotEmpty;
+    if (!hasPitfalls) return const SizedBox.shrink();
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -645,143 +783,123 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          const Row(
             children: [
-              Container(
-                width: 22,
-                height: 22,
-                decoration: const BoxDecoration(
-                  color: AppColors.crimson,
-                  shape: BoxShape.circle,
-                ),
-                child: const Center(
-                  child: Text(
-                    '3',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
+              Icon(Icons.warning_amber_rounded, size: 20, color: AppColors.crimson),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Common Exam Pitfalls & Misconceptions',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.onErrorContainer,
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              const Text(
-                'Common Exam Pitfalls',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.onErrorContainer,
-                ),
-              ),
-              const Spacer(),
-              const Icon(Icons.warning_amber_rounded,
-                  size: 20, color: AppColors.crimson),
             ],
           ),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceContainerLowest,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Row(
-                  children: [
-                    Icon(Icons.error_outline_rounded,
-                        size: 16, color: AppColors.crimson),
-                    SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        "Don't confuse Retrograde with Anterograde!",
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.crimson,
+          const SizedBox(height: 12),
+          if (pitfalls.isNotEmpty)
+            ...pitfalls.map((ep) => Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceContainerLowest,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.error_outline_rounded, size: 16, color: AppColors.crimson),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          ep.title,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.crimson,
+                          ),
                         ),
-                        overflow: TextOverflow.ellipsis,
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    ep.description,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.onSurface,
+                      height: 1.35,
                     ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Prof. Vance emphasized this for Midterm 2. Remember:',
-                  style:
-                      TextStyle(fontSize: 11, color: AppColors.onSurfaceVariant),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceContainerLow,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Retrograde',
-                              style: TextStyle(
+                  ),
+                  if (ep.conceptA.isNotEmpty && ep.conceptB.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: AppColors.surfaceContainerLow,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              ep.conceptA,
+                              style: const TextStyle(
                                 fontSize: 11,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: FontWeight.w600,
                                 color: AppColors.onSurface,
                               ),
                             ),
-                            SizedBox(height: 2),
-                            Text(
-                              'Cannot recall memories formed before injury.',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: AppColors.onSurfaceVariant,
-                              ),
+                          ),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 6),
+                          child: Text('vs', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.crimson)),
+                        ),
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: AppColors.surfaceContainerLow,
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceContainerLow,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Anterograde',
-                              style: TextStyle(
+                            child: Text(
+                              ep.conceptB,
+                              style: const TextStyle(
                                 fontSize: 11,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: FontWeight.w600,
                                 color: AppColors.onSurface,
                               ),
                             ),
-                            SizedBox(height: 2),
-                            Text(
-                              'Cannot form new enduring memories after trauma.',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: AppColors.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ],
+                ],
+              ),
+            ))
+          else
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceContainerLowest,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                _note!.examPitfall,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.onSurface,
+                  height: 1.35,
                 ),
-              ],
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -792,6 +910,7 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
       decoration: BoxDecoration(
         color: AppColors.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.surfaceContainerHigh),
       ),
       child: Column(
         children: [
@@ -814,7 +933,7 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'View Original Raw Transcript',
+                          'View Original Extracted Material',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
@@ -822,7 +941,7 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
                           ),
                         ),
                         Text(
-                          'Scanned Lecture Notes & Voice Sync',
+                          'Raw extracted source text processed by AI',
                           style: TextStyle(
                             fontSize: 11,
                             color: AppColors.onSurfaceVariant,
@@ -844,50 +963,24 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
           if (_isTranscriptExpanded)
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-              child: Column(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceContainerLowest,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      _note.rawTranscript,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.onSurfaceVariant,
-                        height: 1.4,
-                      ),
-                    ),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceContainerLowest,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  _note!.rawTranscript.isNotEmpty
+                      ? _note!.rawTranscript
+                      : 'No source transcript recorded.',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.onSurfaceVariant,
+                    height: 1.45,
+                    fontFamily: 'monospace',
                   ),
-                  const SizedBox(height: 8),
-                  const Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.open_in_new_rounded,
-                              size: 13, color: AppColors.primary),
-                          SizedBox(width: 4),
-                          Text(
-                            'View Scanned Notebook (.PDF)',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Text(
-                        '1.2 MB',
-                        style: TextStyle(
-                            fontSize: 11, color: AppColors.outline),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ),
             ),
         ],
@@ -896,6 +989,7 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
   }
 
   Widget _buildRetentionFeedbackCard() {
+    final pct = _note!.accuracyPercent;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -906,37 +1000,41 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Estimated Mastery',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.onSurfaceVariant,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'AI Synthesis Quality',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.onSurfaceVariant,
+                  ),
                 ),
-              ),
-              SizedBox(height: 2),
-              Text(
-                '78% Solid Recall',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.emerald,
+                const SizedBox(height: 2),
+                Text(
+                  '$pct% Core Concept Density',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.emerald,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
+          const SizedBox(width: 8),
           Row(
             children: [
-              _buildMasteryBar(true),
+              _buildMasteryBar(pct >= 60),
               const SizedBox(width: 4),
-              _buildMasteryBar(true),
+              _buildMasteryBar(pct >= 75),
               const SizedBox(width: 4),
-              _buildMasteryBar(true),
+              _buildMasteryBar(pct >= 85),
               const SizedBox(width: 4),
-              _buildMasteryBar(false),
+              _buildMasteryBar(pct >= 90),
             ],
           ),
         ],
@@ -977,7 +1075,7 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             GradientButton(
-              height: 52,
+              height: 50,
               onPressed: _isGeneratingQuiz ? null : _generateAndStartQuiz,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -986,8 +1084,8 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
                     child: Row(
                       children: [
                         Container(
-                          width: 32,
-                          height: 32,
+                          width: 30,
+                          height: 30,
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.2),
                             shape: BoxShape.circle,
@@ -1001,7 +1099,7 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
                                   ),
                                 )
                               : const Icon(Icons.quiz_rounded,
-                                  color: Colors.white, size: 18),
+                                  color: Colors.white, size: 17),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
@@ -1011,12 +1109,15 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
                             children: [
                               Row(
                                 children: [
-                                  Text(
-                                    _isGeneratingQuiz ? 'Generating AI Quiz...' : '✨ Generate AI Quiz',
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.white,
+                                  Flexible(
+                                    child: Text(
+                                      _isGeneratingQuiz ? 'Generating AI Quiz...' : '✨ Generate AI Quiz',
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.white,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
                                   const SizedBox(width: 6),
@@ -1031,7 +1132,7 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
                                 ],
                               ),
                               Text(
-                                _isGeneratingQuiz ? 'Building dynamic questions from text' : 'Test your recall in under 2 mins',
+                                _isGeneratingQuiz ? 'Building questions from note deck' : 'Test your recall in under 2 mins',
                                 style: const TextStyle(
                                   fontSize: 10,
                                   color: Colors.white70,
@@ -1051,51 +1152,50 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => widget.onChatWithNote(_note),
-                    icon: const Icon(Icons.chat_bubble_outline_rounded, size: 15),
-                    label: const Text('Chat with Notes', style: TextStyle(fontSize: 12)),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.primary,
-                      side: const BorderSide(color: AppColors.surfaceContainerHigh),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => widget.onChatWithNote(_note!),
+                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 15),
+                label: const Text('Chat with Notes', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.surfaceContainerHigh),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Exporting note to Anki .apkg format...'),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.style_rounded, size: 15),
-                    label: const Text('Export to Anki', style: TextStyle(fontSize: 12)),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.onSurface,
-                      side: const BorderSide(color: AppColors.surfaceContainerHigh),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  IconData _getIconForName(String name) {
+    switch (name.toLowerCase()) {
+      case 'visibility':
+        return Icons.visibility_rounded;
+      case 'timer':
+        return Icons.timer_rounded;
+      case 'all_inclusive':
+        return Icons.all_inclusive_rounded;
+      case 'biotech':
+      case 'dna':
+        return Icons.biotech_rounded;
+      case 'code':
+      case 'terminal':
+        return Icons.code_rounded;
+      case 'school':
+        return Icons.school_rounded;
+      case 'science':
+        return Icons.science_rounded;
+      case 'memory':
+        return Icons.memory_rounded;
+      default:
+        return Icons.auto_stories_rounded;
+    }
   }
 }
