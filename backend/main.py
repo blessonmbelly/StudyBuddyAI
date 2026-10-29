@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.routes import files, notes, quiz, chat
+from app.routes import files, documents, notes, quiz, chat, auth, flashcards
 
 app = FastAPI(
     title="StudyBuddy AI API",
@@ -22,10 +22,13 @@ app.add_middleware(
 )
 
 # Include API endpoints
+app.include_router(auth.router)
+app.include_router(documents.router)
 app.include_router(files.router)
 app.include_router(notes.router)
 app.include_router(quiz.router)
 app.include_router(chat.router)
+app.include_router(flashcards.router)
 
 @app.get("/health", tags=["Health"])
 async def health_check():

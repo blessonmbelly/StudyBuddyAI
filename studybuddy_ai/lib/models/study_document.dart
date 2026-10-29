@@ -11,6 +11,7 @@ class StudyDocument {
   int wordCount;
   String extractionMethod;
   String processingStatus; // 'completed', 'fallback', 'edited'
+  final int pageCount;
   final DateTime createdAt;
   NoteItem? generatedNote;
   List<QuizQuestion>? generatedQuiz;
@@ -25,6 +26,7 @@ class StudyDocument {
     this.wordCount = 0,
     this.extractionMethod = 'OCR',
     this.processingStatus = 'completed',
+    this.pageCount = 1,
     DateTime? createdAt,
     this.generatedNote,
     this.generatedQuiz,
@@ -40,6 +42,7 @@ class StudyDocument {
     int? wordCount,
     String? extractionMethod,
     String? processingStatus,
+    int? pageCount,
     DateTime? createdAt,
     NoteItem? generatedNote,
     List<QuizQuestion>? generatedQuiz,
@@ -54,6 +57,7 @@ class StudyDocument {
       wordCount: wordCount ?? this.wordCount,
       extractionMethod: extractionMethod ?? this.extractionMethod,
       processingStatus: processingStatus ?? this.processingStatus,
+      pageCount: pageCount ?? this.pageCount,
       createdAt: createdAt ?? this.createdAt,
       generatedNote: generatedNote ?? this.generatedNote,
       generatedQuiz: generatedQuiz ?? this.generatedQuiz,
@@ -78,6 +82,9 @@ class StudyDocument {
           : int.tryParse(json['word_count']?.toString() ?? '0') ?? 0,
       extractionMethod: json['extraction_method']?.toString() ?? 'OCR',
       processingStatus: json['processing_status']?.toString() ?? 'completed',
+      pageCount: json['page_count'] is int
+          ? json['page_count'] as int
+          : int.tryParse(json['page_count']?.toString() ?? '1') ?? 1,
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'].toString()) ?? DateTime.now()
           : DateTime.now(),
@@ -96,6 +103,7 @@ class StudyDocument {
       'topics': topics,
       'extracted_text': extractedText,
       'word_count': wordCount,
+      'page_count': pageCount,
       'extraction_method': extractionMethod,
       'processing_status': processingStatus,
       'created_at': createdAt.toIso8601String(),

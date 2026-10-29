@@ -443,6 +443,99 @@ Return a valid JSON object matching this schema:
         raise handle_gemini_exception(e)
 
 
+# --- Flashcards Generation ---
+def generate_flashcards(
+    text: str,
+    num_cards: int = 6,
+    deck_title: Optional[str] = None,
+    subject: Optional[str] = None,
+) -> dict:
+    """
+    Generates Q&A flashcards grounded strictly in the provided study material.
+    Returns a dict with 'title', 'subject', 'description', and 'cards' (list of dicts with front, back, hint).
+    """
+    client = get_gemini_client()
+    if not client:
+        raise HTTPException(
+            status_code=503,
+            detail="Gemini AI is not configured. Please set GEMINI_API_KEY in backend/.env to generate flashcards.",
+        )
+
+    try:
+        truncated_text = text[:60000]
+        title_hint = f'"{deck_title}"' if deck_title else "a descriptive academic deck title"
+        subj_hint = f'"{subject}"' if subject else "the primary academic discipline"
+
+        prompt = f"""You are an elite academic study coach specializing in active recall and spaced repetition flashcards.
+Based strictly on the source study material below, extract the most important core concepts, key mechanisms, definitions, formulas, and critical distinctions to create exactly {num_cards} flashcards.
+
+Study Material:
+\"\"\"
+{truncated_text}
+\"\"\"
+
+Requirements:
+- Create exactly {num_cards} cards.
+- "front": A clear, thought-provoking question, key term, or conceptual challenge for active recall (e.g. "What is the primary role of the hippocampus in memory consolidation?", "Define Long-Term Potentiation (LTP)").
+- "back": A clear, accurate, and concise answer explaining the concept factually based on the text (1-3 sentences).
+- "hint": A brief, helpful cognitive clue that prompts recall without giving the answer away directly.
+- Identify a suitable "title" (e.g. {title_hint}) and "subject" (e.g. {subj_hint}).
+- Provide a 1-sentence "description" summarizing what this deck covers.
+
+Return a valid JSON object matching this schema:
+{{
+  "title": "Title of the Deck",
+  "subject": "Academic Subject / Field",
+  "description": "Short overview of cards included.",
+  "cards": [
+    {{
+      "front": "Question or active recall prompt",
+      "back": "Accurate, concise answer or definition",
+      "hint": "Brief memory clue"
+    }}
+  ]
+}}
+"""
+        response = generate_content_with_retry(
+            client=client,
+            model=settings.GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.2,
+            ),
+        )
+        data = clean_and_parse_json(response.text)
+        raw_cards = data.get("cards", [])
+        if not raw_cards:
+            raise HTTPException(status_code=502, detail="Gemini returned an empty flashcard list.")
+
+        cards = []
+        for i, c in enumerate(raw_cards[:num_cards]):
+            if isinstance(c, dict):
+                front = str(c.get("front", f"Core Concept {i + 1}")).strip()
+                back = str(c.get("back", "Key principle described in study notes.")).strip()
+                hint = c.get("hint")
+                if hint:
+                    hint = str(hint).strip()
+                cards.append({
+                    "front": front,
+                    "back": back,
+                    "hint": hint,
+                    "order_index": i,
+                })
+
+        return {
+            "title": deck_title or data.get("title", "Study Flashcards"),
+            "subject": subject or data.get("subject", "General"),
+            "description": data.get("description", f"Active recall deck containing {len(cards)} key cards."),
+            "cards": cards,
+        }
+    except Exception as e:
+        logger.error(f"Gemini flashcard generation error: {e}")
+        raise handle_gemini_exception(e)
+
+
 # --- Chat with Notes ---
 def answer_student_chat(
     message: str,

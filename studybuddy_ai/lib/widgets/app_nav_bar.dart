@@ -34,7 +34,7 @@ class AppNavBar extends StatelessWidget {
         top: false,
         child: Container(
           height: 68,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 6),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
@@ -46,15 +46,20 @@ class AppNavBar extends StatelessWidget {
               _buildNavItem(
                 index: 1,
                 icon: Icons.document_scanner_rounded,
-                label: 'Scan & Import',
+                label: 'Scan',
               ),
               _buildNavItem(
                 index: 2,
                 icon: Icons.auto_stories_rounded,
-                label: 'Short Notes',
+                label: 'Notes',
               ),
               _buildNavItem(
                 index: 3,
+                icon: Icons.style_rounded,
+                label: 'Cards',
+              ),
+              _buildNavItem(
+                index: 4,
                 icon: Icons.smart_toy_rounded,
                 label: 'Chat AI',
               ),

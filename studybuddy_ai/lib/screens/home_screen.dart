@@ -1,20 +1,24 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../models/auth_user.dart';
 import '../models/note.dart';
 import '../models/study_document.dart';
-import '../widgets/metric_ring.dart';
 
 class HomeScreen extends StatefulWidget {
   final Function(int targetTab, {String? scanMode}) onNavigateTab;
   final Function(StudyDocument doc)? onOpenDocumentNotes;
   final Function(StudyDocument doc)? onStartDocumentQuiz;
   final Function(StudyDocument doc)? onOpenDocumentChat;
+  final Function(StudyDocument doc)? onOpenDocumentFlashcards;
   final Function(StudyDocument doc)? onEditDocument;
+  final Function(StudyDocument doc)? onDeleteDocument;
   final Function(NoteItem note)? onOpenNote;
   final VoidCallback? onStartQuiz;
   final VoidCallback? onOpenChat;
   final List<StudyDocument> documents;
   final List<NoteItem>? notes;
+  final AuthUser? currentUser;
+  final VoidCallback? onLogout;
 
   const HomeScreen({
     super.key,
@@ -22,12 +26,16 @@ class HomeScreen extends StatefulWidget {
     this.onOpenDocumentNotes,
     this.onStartDocumentQuiz,
     this.onOpenDocumentChat,
+    this.onOpenDocumentFlashcards,
     this.onEditDocument,
+    this.onDeleteDocument,
     this.onOpenNote,
     this.onStartQuiz,
     this.onOpenChat,
     this.documents = const [],
     this.notes,
+    this.currentUser,
+    this.onLogout,
   });
 
   @override
@@ -62,8 +70,6 @@ class _HomeScreenState extends State<HomeScreen> {
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
                   _buildWelcomeGreeting(),
-                  const SizedBox(height: 16),
-                  _buildHabitTrackerCard(),
                   const SizedBox(height: 20),
                   _buildSmartImportSection(),
                   const SizedBox(height: 20),
@@ -139,40 +145,21 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-          // Streak Badge
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceContainerLow,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppColors.surfaceContainerHigh),
-            ),
-            child: const Row(
-              children: [
-                Text('🔥', style: TextStyle(fontSize: 13)),
-                SizedBox(width: 4),
-                Text(
-                  '6 Days',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.primary,
-                  ),
-                ),
-              ],
-            ),
-          ),
           const SizedBox(width: 8),
-          // User Avatar
-          CircleAvatar(
-            radius: 17,
-            backgroundColor: AppColors.primaryFixed,
-            child: const Text(
-              'A',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: AppColors.onPrimaryFixed,
+          // User Avatar & Profile Menu
+          InkWell(
+            onTap: () => _showUserMenu(context),
+            borderRadius: BorderRadius.circular(20),
+            child: CircleAvatar(
+              radius: 17,
+              backgroundColor: AppColors.primaryFixed,
+              child: Text(
+                widget.currentUser?.avatarInitial ?? 'A',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.onPrimaryFixed,
+                ),
               ),
             ),
           ),
@@ -181,22 +168,139 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _showUserMenu(BuildContext context) {
+    final user = widget.currentUser;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Material(
+        color: AppColors.surfaceContainerLowest,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 28,
+                    backgroundColor: AppColors.primaryFixed,
+                    child: Text(
+                      user?.avatarInitial ?? 'A',
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.onPrimaryFixed,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          user?.displayName ?? 'Student',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          user?.email ?? 'Signed in',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              const Divider(height: 1, color: AppColors.surfaceContainerHigh),
+              const SizedBox(height: 12),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: AppColors.crimson.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.logout_rounded,
+                    color: AppColors.crimson,
+                    size: 20,
+                  ),
+                ),
+                title: const Text(
+                  'Sign Out',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.crimson,
+                  ),
+                ),
+                subtitle: const Text(
+                  'Clear session and return to login',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.onSurfaceVariant,
+                  ),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  widget.onLogout?.call();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
   Widget _buildWelcomeGreeting() {
+    final displayName = widget.currentUser?.displayName;
+    final greeting = displayName != null && displayName.isNotEmpty
+        ? 'Welcome back, $displayName 👋'
+        : 'Welcome back 👋';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            const Expanded(
+            Expanded(
               child: Text(
-                'Welcome back 👋',
-                style: TextStyle(
+                greeting,
+                style: const TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
                   color: AppColors.onSurface,
                   letterSpacing: -0.3,
+                  height: 1.25,
                 ),
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -224,160 +328,21 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         Text(
           widget.documents.isNotEmpty
               ? 'Ready to master ${widget.documents.first.subject} (${widget.documents.first.title})?'
               : 'Scan or import lecture material to start studying with AI.',
           style: const TextStyle(
-            fontSize: 14,
+            fontSize: 13,
             fontWeight: FontWeight.w400,
             color: AppColors.onSurfaceVariant,
+            height: 1.3,
           ),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
       ],
-    );
-  }
-
-  Widget _buildHabitTrackerCard() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.surfaceContainerHigh),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primaryContainer.withValues(alpha: 0.05),
-            blurRadius: 18,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.verified_rounded,
-                          size: 16,
-                          color: AppColors.emerald,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'DAILY HABIT',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.emerald,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      '3 of 4 tasks completed',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    const Text(
-                      '1 more session to secure today\'s 7-day streak milestone!',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              const MetricRing(
-                progress: 0.75,
-                size: 56,
-                strokeWidth: 5,
-                progressColor: AppColors.primaryContainer,
-                trackColor: AppColors.surfaceContainerLow,
-                centerChild: Text(
-                  '75%',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.onSurface,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          // 4 Micro checkpoints
-          Row(
-            children: [
-              _buildTaskCheckpoint('Flashcards', true),
-              const SizedBox(width: 6),
-              _buildTaskCheckpoint('Recap Quiz', true),
-              const SizedBox(width: 6),
-              _buildTaskCheckpoint('Audio Note', true),
-              const SizedBox(width: 6),
-              _buildTaskCheckpoint('Practice Test', false, isNext: true),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTaskCheckpoint(String title, bool isDone, {bool isNext = false}) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-        decoration: BoxDecoration(
-          color: isNext
-              ? AppColors.primaryFixed.withValues(alpha: 0.45)
-              : AppColors.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(12),
-          border: isNext
-              ? Border.all(color: AppColors.primary.withValues(alpha: 0.3))
-              : null,
-        ),
-        child: Column(
-          children: [
-            Icon(
-              isDone
-                  ? Icons.check_circle_rounded
-                  : Icons.radio_button_unchecked_rounded,
-              size: 16,
-              color: isDone
-                  ? AppColors.emerald
-                  : (isNext ? AppColors.primary : AppColors.outline),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: isNext ? FontWeight.w700 : FontWeight.w500,
-                color: isNext ? AppColors.primary : AppColors.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -683,16 +648,33 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
-              IconButton(
-                icon: const Icon(
-                  Icons.edit_outlined,
-                  size: 18,
-                  color: AppColors.onSurfaceVariant,
-                ),
-                tooltip: 'Edit Title & Subject',
-                onPressed: () => _showEditDocumentDialog(doc),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(
+                      Icons.edit_outlined,
+                      size: 18,
+                      color: AppColors.onSurfaceVariant,
+                    ),
+                    tooltip: 'Edit Title & Subject',
+                    onPressed: () => _showEditDocumentDialog(doc),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.delete_outline_rounded,
+                      size: 18,
+                      color: AppColors.crimson,
+                    ),
+                    tooltip: 'Remove Study Material',
+                    onPressed: () => _confirmDeleteDocument(doc),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
               ),
             ],
           ),
@@ -734,113 +716,136 @@ class _HomeScreenState extends State<HomeScreen> {
               }).toList(),
             ),
           ],
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+          // Metadata Row
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Icon(
+                Icons.description_outlined,
+                size: 14,
+                color: AppColors.primary,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                '${doc.wordCount} words',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Icon(
+                Icons.auto_awesome_rounded,
+                size: 14,
+                color: AppColors.emerald,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                hasNotes && hasQuiz
+                    ? 'Ready'
+                    : (hasNotes
+                        ? 'Notes ready'
+                        : (hasQuiz ? 'Quiz ready' : 'OCR ready')),
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.emerald,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Action Buttons Row (evenly spaced)
+          Row(
             children: [
               Expanded(
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.description_outlined,
-                      size: 15,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    widget.onOpenDocumentNotes?.call(doc);
+                  },
+                  icon: const Icon(
+                    Icons.menu_book_rounded,
+                    size: 13,
+                    color: AppColors.primary,
+                  ),
+                  label: const Text(
+                    'Notes',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
                       color: AppColors.primary,
                     ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${doc.wordCount} words',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.primary,
-                      ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor:
+                        AppColors.primaryFixed.withValues(alpha: 0.5),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                    const SizedBox(width: 8),
-                    const Icon(
-                      Icons.auto_awesome_rounded,
-                      size: 14,
-                      color: AppColors.emerald,
-                    ),
-                    const SizedBox(width: 4),
-                    Flexible(
-                      child: Text(
-                        hasNotes && hasQuiz
-                            ? 'Ready'
-                            : (hasNotes
-                                ? 'Notes ready'
-                                : (hasQuiz ? 'Quiz ready' : 'OCR ready')),
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.emerald,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      widget.onOpenDocumentNotes?.call(doc);
-                    },
-                    icon: const Icon(
-                      Icons.menu_book_rounded,
-                      size: 13,
-                      color: AppColors.primary,
-                    ),
-                    label: const Text(
-                      'Notes',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          AppColors.primaryFixed.withValues(alpha: 0.5),
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    widget.onStartDocumentQuiz?.call(doc);
+                  },
+                  icon: const Icon(
+                    Icons.play_arrow_rounded,
+                    size: 14,
+                    color: Colors.white,
                   ),
-                  const SizedBox(width: 6),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      widget.onStartDocumentQuiz?.call(doc);
-                    },
-                    icon: const Icon(
-                      Icons.play_arrow_rounded,
-                      size: 14,
+                  label: const Text(
+                    'Quiz',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
                       color: Colors.white,
                     ),
-                    label: const Text(
-                      'Quiz',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
                     ),
                   ),
-                ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    widget.onOpenDocumentFlashcards?.call(doc);
+                  },
+                  icon: const Icon(
+                    Icons.style_rounded,
+                    size: 13,
+                    color: AppColors.primary,
+                  ),
+                  label: const Text(
+                    'Cards',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor:
+                        AppColors.primaryFixed.withValues(alpha: 0.5),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
@@ -952,6 +957,56 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteDocument(StudyDocument doc) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: AppColors.surfaceContainerLowest,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.delete_outline_rounded, color: AppColors.crimson, size: 22),
+            SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                'Remove Material?',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to remove "${doc.title}"? This study material and its notes will be deleted from your recent materials.',
+          style: const TextStyle(fontSize: 13, height: 1.4, color: AppColors.onSurfaceVariant),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(dialogCtx).pop();
+              widget.onDeleteDocument?.call(doc);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.crimson,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text('Remove'),
           ),
         ],
       ),

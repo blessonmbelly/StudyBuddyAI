@@ -9,6 +9,7 @@ class ShortNotesScreen extends StatefulWidget {
   final NoteItem? note;
   final void Function([List<QuizQuestion>? questions, String? quizTitle]) onStartQuiz;
   final void Function(NoteItem note) onChatWithNote;
+  final void Function(NoteItem note)? onStudyFlashcards;
   final VoidCallback? onBack;
   final VoidCallback? onNavigateToScan;
 
@@ -17,6 +18,7 @@ class ShortNotesScreen extends StatefulWidget {
     this.note,
     required this.onStartQuiz,
     required this.onChatWithNote,
+    this.onStudyFlashcards,
     this.onBack,
     this.onNavigateToScan,
   });
@@ -1152,21 +1154,50 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => widget.onChatWithNote(_note!),
-                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 15),
-                label: const Text('Chat with Notes', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.primary,
-                  side: const BorderSide(color: AppColors.surfaceContainerHigh),
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      if (_note != null) {
+                        widget.onStudyFlashcards?.call(_note!);
+                      }
+                    },
+                    icon: const Icon(Icons.style_rounded, size: 15),
+                    label: const Text(
+                      'Flashcards',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      side: const BorderSide(color: AppColors.surfaceContainerHigh),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => widget.onChatWithNote(_note!),
+                    icon: const Icon(Icons.chat_bubble_outline_rounded, size: 15),
+                    label: const Text(
+                      'Chat AI',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      side: const BorderSide(color: AppColors.surfaceContainerHigh),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
