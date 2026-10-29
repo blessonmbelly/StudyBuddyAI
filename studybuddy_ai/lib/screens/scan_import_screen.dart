@@ -35,6 +35,7 @@ class ScannedPageItem {
 
 class ScanImportScreen extends StatefulWidget {
   final String initialMode;
+  final List<ScannedPageItem>? initialPages;
   final void Function(NoteItem note)? onExportToNotes;
   final void Function(StudyDocument document)? onExportDocument;
   final VoidCallback? onNavigateToNotes;
@@ -42,6 +43,7 @@ class ScanImportScreen extends StatefulWidget {
   const ScanImportScreen({
     super.key,
     this.initialMode = 'camera',
+    this.initialPages,
     this.onExportToNotes,
     this.onExportDocument,
     this.onNavigateToNotes,
@@ -75,6 +77,9 @@ class _ScanImportScreenState extends State<ScanImportScreen> {
   void initState() {
     super.initState();
     _activeMode = widget.initialMode;
+    if (widget.initialPages != null) {
+      _scannedPages.addAll(widget.initialPages!);
+    }
     _textController = TextEditingController();
     _pasteController = TextEditingController();
   }
@@ -1351,6 +1356,7 @@ class _ScanImportScreenState extends State<ScanImportScreen> {
               // Center Action Badge
               Center(
                 child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 14),
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
                     color: AppColors.inverseSurface.withValues(alpha: 0.88),
@@ -1370,36 +1376,48 @@ class _ScanImportScreenState extends State<ScanImportScreen> {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Text(
-                          _multiExtractStatus ?? 'AI OCR Processing Pages...',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
+                        Flexible(
+                          child: Text(
+                            _multiExtractStatus ?? 'AI OCR Processing Pages...',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ] else if (_scannedPages.isNotEmpty && _scannedPages.any((p) => !p.isExtracted)) ...[
                         const Icon(Icons.collections_bookmark_rounded, size: 14, color: AppColors.primaryFixed),
                         const SizedBox(width: 6),
-                        Text(
-                          '${_scannedPages.length} Photo${_scannedPages.length == 1 ? '' : 's'} Imported • Ready to Scan',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
+                        Flexible(
+                          child: Text(
+                            '${_scannedPages.length} Photo${_scannedPages.length == 1 ? '' : 's'} Imported • Ready to Scan',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ] else ...[
                         const Icon(Icons.circle, size: 8, color: AppColors.emerald),
                         const SizedBox(width: 6),
-                        Text(
-                          _scannedPages.isEmpty
-                              ? 'Tap to Snap Photo 1'
-                              : 'Tap to Add Photo ${_scannedPages.length + 1}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
+                        Flexible(
+                          child: Text(
+                            _scannedPages.isEmpty
+                                ? 'Tap to Snap Photo 1'
+                                : 'Tap to Add Photo ${_scannedPages.length + 1}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
@@ -1517,51 +1535,52 @@ class _ScanImportScreenState extends State<ScanImportScreen> {
       child: Column(
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    const Flexible(
-                      child: Text(
-                        'Captured Pages',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.onSurface,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: _scannedPages.any((p) => !p.isExtracted)
-                            ? AppColors.secondaryFixed
-                            : AppColors.primaryFixed,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        _scannedPages.any((p) => !p.isExtracted)
-                            ? '$_capturedCount Imported (${_scannedPages.where((p) => !p.isExtracted).length} Ready)'
-                            : '$_capturedCount Page${_capturedCount == 1 ? '' : 's'}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: _scannedPages.any((p) => !p.isExtracted)
-                              ? AppColors.onSecondaryFixedVariant
-                              : AppColors.onPrimaryFixed,
-                        ),
-                      ),
-                    ),
-                  ],
+              const Flexible(
+                child: Text(
+                  'Captured Pages',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.onSurface,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _scannedPages.any((p) => !p.isExtracted)
+                      ? AppColors.secondaryFixed
+                      : AppColors.primaryFixed,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  _scannedPages.any((p) => !p.isExtracted)
+                      ? '$_capturedCount Ready'
+                      : '$_capturedCount Page${_capturedCount == 1 ? '' : 's'}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: _scannedPages.any((p) => !p.isExtracted)
+                        ? AppColors.onSecondaryFixedVariant
+                        : AppColors.onPrimaryFixed,
+                  ),
+                  maxLines: 1,
+                ),
+              ),
+              const Spacer(),
               if (_scannedPages.isNotEmpty)
                 TextButton(
                   onPressed: _isExtracting ? null : _clearAllPages,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    visualDensity: VisualDensity.compact,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
                   child: const Text(
                     'Clear All',
                     style: TextStyle(
@@ -1693,7 +1712,7 @@ class _ScanImportScreenState extends State<ScanImportScreen> {
           const SizedBox(height: 14),
           // Shutter controls
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               // Gallery multi-picker button
               IconButton(
@@ -1701,19 +1720,20 @@ class _ScanImportScreenState extends State<ScanImportScreen> {
                 tooltip: 'Select multiple photos from gallery',
                 onPressed: _isExtracting ? null : _pickMultipleFromGallery,
               ),
+              const SizedBox(width: 4),
               // Shutter button
               InkWell(
                 onTap: _isExtracting ? null : _captureFromCamera,
-                borderRadius: BorderRadius.circular(36),
+                borderRadius: BorderRadius.circular(35),
                 child: Container(
-                  width: 70,
-                  height: 70,
-                  padding: const EdgeInsets.all(5),
+                  width: 66,
+                  height: 66,
+                  padding: const EdgeInsets.all(4),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
                       color: AppColors.primary.withValues(alpha: 0.35),
-                      width: 4,
+                      width: 3.5,
                     ),
                   ),
                   child: Container(
@@ -1724,8 +1744,8 @@ class _ScanImportScreenState extends State<ScanImportScreen> {
                     child: _isExtracting
                         ? const Center(
                             child: SizedBox(
-                              width: 24,
-                              height: 24,
+                              width: 22,
+                              height: 22,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2.5,
                                 valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
@@ -1733,62 +1753,75 @@ class _ScanImportScreenState extends State<ScanImportScreen> {
                             ),
                           )
                         : const Icon(Icons.photo_camera_rounded,
-                            color: Colors.white, size: 28),
+                            color: Colors.white, size: 26),
                   ),
                 ),
               ),
+              const SizedBox(width: 4),
               // Scan / Export button
               if (_scannedPages.any((p) => !p.isExtracted))
-                ElevatedButton.icon(
-                  onPressed: _isExtracting ? null : _startBatchOcrScan,
-                  icon: _isExtracting
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        )
-                      : const Icon(Icons.document_scanner_rounded, size: 16),
-                  label: Text(
-                    _isExtracting
-                        ? 'Scanning...'
-                        : 'Scan & Process (${_scannedPages.length})',
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+                Flexible(
+                  child: ElevatedButton.icon(
+                    onPressed: _isExtracting ? null : _startBatchOcrScan,
+                    icon: _isExtracting
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : const Icon(Icons.document_scanner_rounded, size: 16),
+                    label: Text(
+                      _isExtracting
+                          ? 'Scanning...'
+                          : 'Scan & Process (${_scannedPages.length})',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
                     ),
                   ),
                 )
               else
-                ElevatedButton.icon(
-                  onPressed: (_isGenerating || _textController.text.trim().isEmpty) ? null : _exportToNotes,
-                  icon: _isGenerating
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        )
-                      : const Icon(Icons.arrow_forward_rounded, size: 16),
-                  label: Text(
-                    _isGenerating
-                        ? 'Generating...'
-                        : (_scannedPages.length > 1
-                            ? 'Export Notes (${_scannedPages.length})'
-                            : 'Export Notes'),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.emerald,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+                Flexible(
+                  child: ElevatedButton.icon(
+                    onPressed: (_isGenerating || _textController.text.trim().isEmpty) ? null : _exportToNotes,
+                    icon: _isGenerating
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : const Icon(Icons.arrow_forward_rounded, size: 16),
+                    label: Text(
+                      _isGenerating
+                          ? 'Generating...'
+                          : (_scannedPages.length > 1
+                              ? 'Export Notes (${_scannedPages.length})'
+                              : 'Export Notes'),
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.emerald,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
                     ),
                   ),
                 ),
@@ -2125,7 +2158,7 @@ class _ScanImportScreenState extends State<ScanImportScreen> {
                     SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'Extracted Text Preview',
+                        'Extracted Text',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
