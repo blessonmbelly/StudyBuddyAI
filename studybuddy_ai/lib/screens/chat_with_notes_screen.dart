@@ -1,22 +1,28 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
 import '../models/chat_message.dart';
 import '../models/note.dart';
+import '../models/study_document.dart';
 import '../services/api_service.dart';
-import '../data/sample_notes.dart';
-import '../data/mock_chat_data.dart';
+import '../services/auth_service.dart';
+import '../theme/app_theme.dart';
 
 class ChatWithNotesScreen extends StatefulWidget {
+  final StudyDocument? selectedDocument;
+  final List<StudyDocument>? availableDocuments;
   final NoteItem? selectedNote;
-  final VoidCallback? onBack;
   final List<NoteItem>? availableNotes;
+  final VoidCallback? onBack;
+  final void Function(StudyDocument? doc)? onSelectDocument;
   final void Function(NoteItem note)? onSelectNote;
 
   const ChatWithNotesScreen({
     super.key,
+    this.selectedDocument,
+    this.availableDocuments,
     this.selectedNote,
-    this.onBack,
     this.availableNotes,
+    this.onBack,
+    this.onSelectDocument,
     this.onSelectNote,
   });
 
@@ -25,74 +31,40 @@ class ChatWithNotesScreen extends StatefulWidget {
 }
 
 class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
-  late NoteItem _currentNote;
+  StudyDocument? _currentDocument;
+  NoteItem? _currentNote;
+  String? _activeConversationId;
+
   final List<ChatMessage> _messages = [];
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  bool _isTyping = false;
+
+  bool _isSending = false;
+  bool _isLoadingHistory = false;
+  String? _lastError;
+  String? _lastFailedPrompt;
   List<String> _suggestedPrompts = [];
 
   @override
   void initState() {
     super.initState();
-    _initNoteState();
-  }
-
-  void _initNoteState() {
-    _currentNote = widget.selectedNote ??
-        NoteItem.synthesizedFromDocument(
-          id: 'general_ai',
-          title: 'StudyBuddy AI Assistant',
-          subject: 'General Study',
-          text: 'Ask questions, clarify concepts, or request study tips based on your documents.',
-          topics: const ['Summary', 'Practice Quiz', 'Key Concepts', 'Study Tips'],
-        );
-
-    final welcomeText = widget.selectedNote != null
-        ? "Hi! 👋 I'm StudyBuddy AI. I've reviewed your notes on ${_currentNote.courseName}: ${_currentNote.title}. Ask me anything—definitions, key concepts, or quiz prep!"
-        : "Hi! 👋 I'm StudyBuddy AI, your personal study assistant. Ask me questions, brainstorm topics, or upload lecture notes to study together!";
-
-    _messages.clear();
-    _messages.add(
-      ChatMessage(
-        id: 'msg_welcome',
-        sender: MessageSender.ai,
-        text: welcomeText,
-        timestamp: DateTime.now(),
-        noteReference: widget.selectedNote != null
-            ? '${_currentNote.courseName} • ${_currentNote.title}'
-            : 'StudyBuddy AI',
-        keyTakeaways: _currentNote.definitions.isNotEmpty
-            ? _currentNote.definitions.take(3).toList()
-            : null,
-      ),
-    );
-
-    if (_currentNote.definitions.isNotEmpty) {
-      _suggestedPrompts = _currentNote.definitions
-          .take(4)
-          .map((d) {
-            final term = d.split(':').first.trim();
-            return 'Explain $term';
-          })
-          .toList();
-    } else {
-      _suggestedPrompts = [
-        'Summarize key ideas',
-        'Generate 3 practice questions',
-        'Explain core principles',
-        'Give me a study mnemonic',
-      ];
-    }
+    _currentDocument = widget.selectedDocument;
+    _currentNote = widget.selectedNote;
+    _loadConversationAndState();
   }
 
   @override
   void didUpdateWidget(covariant ChatWithNotesScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.selectedNote != null && widget.selectedNote != _currentNote) {
+    final docChanged = widget.selectedDocument?.id != _currentDocument?.id;
+    final noteChanged = widget.selectedNote?.id != _currentNote?.id;
+
+    if (docChanged || noteChanged) {
       setState(() {
-        _initNoteState();
+        _currentDocument = widget.selectedDocument;
+        _currentNote = widget.selectedNote;
       });
+      _loadConversationAndState();
     }
   }
 
@@ -103,15 +75,154 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
     super.dispose();
   }
 
+  String get _currentContextTitle {
+    if (_currentDocument != null) {
+      return _currentDocument!.title;
+    }
+    if (_currentNote != null) {
+      return _currentNote!.title;
+    }
+    return 'General AI Tutor';
+  }
+
+  String get _currentContextSubtitle {
+    if (_currentDocument != null) {
+      final subject = _currentDocument!.subject.isNotEmpty
+          ? _currentDocument!.subject
+          : 'Study Document';
+      return 'Grounding enabled • $subject';
+    }
+    if (_currentNote != null) {
+      final code = _currentNote!.courseCode.isNotEmpty
+          ? _currentNote!.courseCode
+          : _currentNote!.courseName;
+      return 'Grounding enabled • $code';
+    }
+    return 'General Learning & Reasoning Mode';
+  }
+
+  String? get _currentDocumentId {
+    if (_currentDocument != null && _currentDocument!.id.contains('-')) {
+      return _currentDocument!.id;
+    }
+    if (_currentNote != null && _currentNote!.id.contains('-')) {
+      return _currentNote!.id;
+    }
+    return null;
+  }
+
+  Future<void> _loadConversationAndState() async {
+    _updateSuggestedPrompts();
+    _lastError = null;
+
+    final docId = _currentDocumentId;
+    if (!AuthService.instance.isAuthenticated) {
+      _showInitialWelcome();
+      return;
+    }
+
+    setState(() {
+      _isLoadingHistory = true;
+    });
+
+    try {
+      final convs = await ApiService.fetchConversations(documentId: docId);
+      if (!mounted) return;
+
+      if (convs.isNotEmpty) {
+        final latest = convs.first;
+        _activeConversationId = latest.id;
+        final fullConv = await ApiService.fetchConversation(latest.id);
+        if (!mounted) return;
+
+        setState(() {
+          _messages.clear();
+          if (fullConv.messages.isNotEmpty) {
+            _messages.addAll(fullConv.messages);
+          } else {
+            _showInitialWelcome(keepExisting: false);
+          }
+          _isLoadingHistory = false;
+        });
+        _scrollToBottom();
+      } else {
+        setState(() {
+          _activeConversationId = null;
+          _showInitialWelcome(keepExisting: false);
+          _isLoadingHistory = false;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingHistory = false;
+        _showInitialWelcome(keepExisting: false);
+      });
+    }
+  }
+
+  void _updateSuggestedPrompts() {
+    if (_currentDocument != null) {
+      final topics = _currentDocument!.topics;
+      if (topics.isNotEmpty) {
+        _suggestedPrompts = topics.take(4).map((t) => 'Explain $t').toList();
+      } else {
+        _suggestedPrompts = [
+          'Summarize the core takeaways',
+          'Give me an analogy to understand this',
+          'What are common exam pitfalls here?',
+          'Generate 3 practice questions',
+        ];
+      }
+    } else if (_currentNote != null && _currentNote!.definitions.isNotEmpty) {
+      _suggestedPrompts = _currentNote!.definitions.take(4).map((d) {
+        final term = d.split(':').first.trim();
+        return 'Explain $term';
+      }).toList();
+    } else {
+      _suggestedPrompts = [
+        'Explain photosynthesis with an everyday analogy',
+        'How do operating system deadlocks occur?',
+        'Give me a 3-step study plan for my exams',
+        'Explain Newton\'s laws with real-world examples',
+      ];
+    }
+  }
+
+  void _showInitialWelcome({bool keepExisting = true}) {
+    if (keepExisting && _messages.isNotEmpty) return;
+
+    final welcomeText = _currentDocument != null
+        ? "Hi! 👋 I'm your AI Tutor. I've indexed **${_currentDocument!.title}**. Ask me questions directly from your notes, request real-world analogies, or ask broader concepts beyond the text!"
+        : _currentNote != null
+            ? "Hi! 👋 I'm your AI Tutor. I'm grounded in **${_currentNote!.title}**. Feel free to ask about definitions, step-by-step explanations, or related topics!"
+            : "Hi! 👋 I'm StudyBuddy AI, your personal AI Tutor. Ask me any study question, brainstorm concepts, request step-by-step explanations, or select a document above to study together!";
+
+    _messages.clear();
+    _messages.add(
+      ChatMessage(
+        id: 'msg_welcome_${DateTime.now().millisecondsSinceEpoch}',
+        sender: MessageSender.ai,
+        text: welcomeText,
+        timestamp: DateTime.now(),
+        noteReference: _currentDocument != null
+            ? _currentDocument!.title
+            : _currentNote?.title,
+        outsideKnowledgeUsed: _currentDocument == null && _currentNote == null,
+      ),
+    );
+  }
+
   Future<void> _sendMessage([String? promptText]) async {
     final text = promptText ?? _inputController.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _isSending) return;
 
     final userMsg = ChatMessage(
-      id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
+      id: 'msg_user_${DateTime.now().millisecondsSinceEpoch}',
       sender: MessageSender.user,
       text: text,
       timestamp: DateTime.now(),
+      conversationId: _activeConversationId,
     );
 
     setState(() {
@@ -119,66 +230,113 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
       if (promptText == null) {
         _inputController.clear();
       }
-      _isTyping = true;
+      _isSending = true;
+      _lastError = null;
+      _lastFailedPrompt = null;
     });
 
     _scrollToBottom();
 
-    final noteContext = _currentNote.rawTranscript.isNotEmpty
-        ? _currentNote.rawTranscript
-        : '${_currentNote.title}\n${_currentNote.summary}\n${_currentNote.definitions.join("\n")}';
-
-    final history = _messages
-        .take(6)
-        .map((m) => {
-              'role': m.sender == MessageSender.user ? 'user' : 'model',
-              'content': m.text,
-              'text': m.text,
-            })
-        .toList();
+    final docId = _currentDocumentId;
 
     try {
-      final res = await ApiService.chatWithNotes(
+      final aiResponse = await ApiService.sendTutorMessage(
         message: text,
-        noteContext: noteContext,
-        history: history,
+        conversationId: _activeConversationId,
+        documentId: docId,
       );
-      final replyText = res['reply'] as String? ?? 'No response received.';
 
       if (!mounted) return;
-      final aiMsg = ChatMessage(
-        id: 'msg_ai_${DateTime.now().millisecondsSinceEpoch}',
-        sender: MessageSender.ai,
-        text: replyText,
-        timestamp: DateTime.now(),
-        noteReference: '${_currentNote.courseCode} • ${_currentNote.title}',
-      );
 
       setState(() {
-        _isTyping = false;
-        _messages.add(aiMsg);
+        _isSending = false;
+        _activeConversationId = aiResponse.conversationId ?? _activeConversationId;
+        _messages.add(aiResponse);
       });
 
       _scrollToBottom();
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      // Graceful fallback to offline/mock reply so student experience is uninterrupted
-      final replyText = MockChatService.generateReply(text);
-      final aiMsg = ChatMessage(
-        id: 'msg_ai_${DateTime.now().millisecondsSinceEpoch}',
-        sender: MessageSender.ai,
-        text: replyText,
-        timestamp: DateTime.now(),
-        noteReference: '${_currentNote.courseCode} • ${_currentNote.title}',
-      );
-
+      final cleanErr = ApiService.cleanErrorMessage(e, 'AI Tutor');
       setState(() {
-        _isTyping = false;
-        _messages.add(aiMsg);
+        _isSending = false;
+        _lastError = cleanErr;
+        _lastFailedPrompt = text;
       });
-
       _scrollToBottom();
     }
+  }
+
+  Future<void> _clearConversation() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surfaceContainerLowest,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Clear Chat History?', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+        content: const Text(
+          'This will remove this conversation and its persisted messages from your account.',
+          style: TextStyle(fontSize: 13, color: AppColors.onSurfaceVariant),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel', style: TextStyle(color: AppColors.onSurfaceVariant)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    if (_activeConversationId != null && AuthService.instance.isAuthenticated) {
+      try {
+        await ApiService.deleteConversation(_activeConversationId!);
+      } catch (e) {
+        debugPrint('Conversation delete notice: $e');
+      }
+    }
+
+    setState(() {
+      _activeConversationId = null;
+      _lastError = null;
+      _lastFailedPrompt = null;
+      _showInitialWelcome(keepExisting: false);
+    });
+  }
+
+  void _switchToGeneralTutor() {
+    setState(() {
+      _currentDocument = null;
+      _currentNote = null;
+    });
+    if (widget.onSelectDocument != null) {
+      widget.onSelectDocument!(null);
+    }
+    _loadConversationAndState();
+  }
+
+  void _switchToDocument(StudyDocument doc) {
+    setState(() {
+      _currentDocument = doc;
+      _currentNote = doc.generatedNote;
+    });
+    if (widget.onSelectDocument != null) {
+      widget.onSelectDocument!(doc);
+    }
+    if (doc.generatedNote != null && widget.onSelectNote != null) {
+      widget.onSelectNote!(doc.generatedNote!);
+    }
+    _loadConversationAndState();
   }
 
   void _scrollToBottom() {
@@ -196,24 +354,36 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.surface,
       body: SafeArea(
         child: Column(
           children: [
             _buildAppBar(),
-            _buildNoteContextBar(),
+            _buildContextSelectorBar(),
             _buildSuggestionsRibbon(),
+            if (_isLoadingHistory)
+              const LinearProgressIndicator(
+                minHeight: 2,
+                color: AppColors.primary,
+                backgroundColor: AppColors.surfaceContainerHigh,
+              ),
             Expanded(
               child: ListView.builder(
                 controller: _scrollController,
                 physics: const BouncingScrollPhysics(),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                itemCount: _messages.length + (_isTyping ? 1 : 0),
+                itemCount: _messages.length +
+                    (_isSending ? 1 : 0) +
+                    (_lastError != null ? 1 : 0),
                 itemBuilder: (context, index) {
-                  if (index == _messages.length && _isTyping) {
+                  if (index < _messages.length) {
+                    final msg = _messages[index];
+                    return _buildMessageBubble(msg);
+                  } else if (_isSending && index == _messages.length) {
                     return _buildTypingIndicator();
+                  } else {
+                    return _buildErrorCard();
                   }
-                  final msg = _messages[index];
-                  return _buildMessageBubble(msg);
                 },
               ),
             ),
@@ -243,22 +413,31 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
               constraints: const BoxConstraints(),
             )
           else
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                gradient: AppColors.primaryGradient,
-                borderRadius: BorderRadius.circular(10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.asset(
+                'assets/images/app_logo.png',
+                width: 36,
+                height: 36,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    gradient: AppColors.primaryGradient,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.smart_toy_rounded, color: Colors.white, size: 20),
+                ),
               ),
-              child: const Icon(Icons.smart_toy_rounded,
-                  color: Colors.white, size: 20),
             ),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Chat with Notes',
+                  'AI Tutor',
                   style: TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w700,
@@ -266,47 +445,45 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
                   ),
                 ),
                 Text(
-                  'Grounding enabled • ${_currentNote.courseCode.isNotEmpty ? _currentNote.courseCode : _currentNote.courseName}',
+                  _currentContextSubtitle,
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w500,
                     color: AppColors.emerald,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.delete_outline_rounded,
-                color: AppColors.onSurfaceVariant),
-            onPressed: () {
-              setState(() {
-                _initNoteState();
-              });
-            },
-            tooltip: 'Clear conversation',
+            icon: const Icon(Icons.delete_outline_rounded, color: AppColors.onSurfaceVariant),
+            onPressed: _messages.isEmpty ? null : _clearConversation,
+            tooltip: 'Clear conversation history',
           ),
         ],
       ),
     );
   }
 
-  Widget _buildNoteContextBar() {
-    final available = (widget.availableNotes != null && widget.availableNotes!.isNotEmpty)
-        ? widget.availableNotes!
-        : sampleStudyNotes;
+  Widget _buildContextSelectorBar() {
+    final docs = widget.availableDocuments ?? [];
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       color: AppColors.surfaceContainerLow,
       child: Row(
         children: [
-          const Icon(Icons.menu_book_rounded,
-              size: 16, color: AppColors.primary),
+          Icon(
+            _currentDocument != null ? Icons.description_rounded : Icons.psychology_rounded,
+            size: 16,
+            color: AppColors.primary,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Active Note: ${_currentNote.title}',
+              'Context: $_currentContextTitle',
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
@@ -316,28 +493,74 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          PopupMenuButton<NoteItem>(
-            onSelected: (note) {
-              setState(() {
-                _currentNote = note;
-                _initNoteState();
-              });
-              if (widget.onSelectNote != null) {
-                widget.onSelectNote!(note);
+          PopupMenuButton<dynamic>(
+            tooltip: 'Switch learning material',
+            onSelected: (value) {
+              if (value == 'general') {
+                _switchToGeneralTutor();
+              } else if (value is StudyDocument) {
+                _switchToDocument(value);
               }
             },
             itemBuilder: (context) {
-              return available.map((n) {
-                return PopupMenuItem(
-                  value: n,
-                  child: Text(
-                    '${n.courseCode.isNotEmpty ? "[${n.courseCode}] " : ""}${n.title}',
-                    style: const TextStyle(fontSize: 13),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+              final items = <PopupMenuEntry<dynamic>>[];
+
+              items.add(
+                PopupMenuItem<dynamic>(
+                  value: 'general',
+                  child: Row(
+                    children: [
+                      Icon(Icons.psychology_rounded,
+                          size: 16,
+                          color: _currentDocument == null ? AppColors.primary : AppColors.onSurfaceVariant),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'General AI Tutor (No Document)',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      if (_currentDocument == null && _currentNote == null)
+                        const Icon(Icons.check_rounded, size: 16, color: AppColors.primary),
+                    ],
                   ),
-                );
-              }).toList();
+                ),
+              );
+
+              if (docs.isNotEmpty) {
+                items.add(const PopupMenuDivider());
+                for (final doc in docs) {
+                  final isSelected = _currentDocument?.id == doc.id;
+                  items.add(
+                    PopupMenuItem<dynamic>(
+                      value: doc,
+                      child: Row(
+                        children: [
+                          Icon(Icons.description_outlined,
+                              size: 16,
+                              color: isSelected ? AppColors.primary : AppColors.onSurfaceVariant),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '[${doc.subject}] ${doc.title}',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w400,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (isSelected)
+                            const Icon(Icons.check_rounded, size: 16, color: AppColors.primary),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+              }
+
+              return items;
             },
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -360,6 +583,8 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
   }
 
   Widget _buildSuggestionsRibbon() {
+    if (_suggestedPrompts.isEmpty) return const SizedBox.shrink();
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: SingleChildScrollView(
@@ -371,11 +596,10 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
             return Padding(
               padding: const EdgeInsets.only(right: 8),
               child: InkWell(
-                onTap: () => _sendMessage(prompt),
+                onTap: _isSending ? null : () => _sendMessage(prompt),
                 borderRadius: BorderRadius.circular(16),
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: AppColors.surfaceContainerLowest,
                     borderRadius: BorderRadius.circular(16),
@@ -390,8 +614,7 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.auto_awesome_rounded,
-                          size: 13, color: AppColors.primary),
+                      const Icon(Icons.auto_awesome_rounded, size: 13, color: AppColors.primary),
                       const SizedBox(width: 5),
                       Text(
                         prompt,
@@ -418,20 +641,27 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Row(
-        mainAxisAlignment:
-            isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!isUser) ...[
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                gradient: AppColors.primaryGradient,
-                borderRadius: BorderRadius.circular(10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.asset(
+                'assets/images/app_logo.png',
+                width: 32,
+                height: 32,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    gradient: AppColors.primaryGradient,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.smart_toy_rounded, color: Colors.white, size: 18),
+                ),
               ),
-              child: const Icon(Icons.smart_toy_rounded,
-                  color: Colors.white, size: 18),
             ),
             const SizedBox(width: 8),
           ],
@@ -439,18 +669,14 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
             child: Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: isUser
-                    ? AppColors.primary
-                    : AppColors.surfaceContainerLowest,
+                color: isUser ? AppColors.primary : AppColors.surfaceContainerLowest,
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(18),
                   topRight: const Radius.circular(18),
                   bottomLeft: Radius.circular(isUser ? 18 : 4),
                   bottomRight: Radius.circular(isUser ? 4 : 18),
                 ),
-                border: isUser
-                    ? null
-                    : Border.all(color: AppColors.surfaceContainerHigh),
+                border: isUser ? null : Border.all(color: AppColors.surfaceContainerHigh),
                 boxShadow: [
                   BoxShadow(
                     color: AppColors.primaryContainer.withValues(alpha: 0.04),
@@ -463,8 +689,10 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (!isUser) ...[
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         const Text(
                           'StudyBuddy AI',
@@ -474,62 +702,110 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
                             color: AppColors.primary,
                           ),
                         ),
-                        if (msg.noteReference != null) ...[
-                          const SizedBox(width: 6),
+                        if (msg.noteReference != null && msg.noteReference!.isNotEmpty)
                           Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 1),
+                            constraints: const BoxConstraints(maxWidth: 195),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                              color: AppColors.surfaceContainerLow,
-                              borderRadius: BorderRadius.circular(8),
+                              color: AppColors.emerald.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(6),
                             ),
-                            child: Text(
-                              'Verified Note',
-                              style: const TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.emerald,
-                              ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.verified_rounded, size: 10, color: AppColors.emerald),
+                                const SizedBox(width: 3),
+                                Flexible(
+                                  child: Text(
+                                    'Notes: ${msg.noteReference}',
+                                    style: const TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.emerald,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
+                        if (msg.outsideKnowledgeUsed)
+                          Container(
+                            constraints: const BoxConstraints(maxWidth: 195),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.secondary.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.lightbulb_outline_rounded, size: 10, color: AppColors.secondary),
+                                SizedBox(width: 3),
+                                Flexible(
+                                  child: Text(
+                                    'General Knowledge / Analogy',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.secondary,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                       ],
                     ),
                     const SizedBox(height: 6),
                   ],
-                  Text(
-                    msg.text,
-                    style: TextStyle(
-                      fontSize: 13,
-                      height: 1.45,
-                      color: isUser ? Colors.white : AppColors.onSurface,
-                    ),
-                  ),
-                  if (msg.keyTakeaways != null &&
-                      msg.keyTakeaways!.isNotEmpty) ...[
+                  _buildFormattedText(msg.text, isUser),
+                  if (msg.keyTakeaways != null && msg.keyTakeaways!.isNotEmpty) ...[
                     const SizedBox(height: 10),
-                    ...msg.keyTakeaways!.map((k) {
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('• ',
-                                style: TextStyle(
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.bold)),
-                            Expanded(
-                              child: Text(
-                                k,
-                                style: const TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.onSurfaceVariant),
-                              ),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceContainerLow,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Key Takeaways:',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary,
                             ),
-                          ],
-                        ),
-                      );
-                    }),
+                          ),
+                          const SizedBox(height: 4),
+                          ...msg.keyTakeaways!.map((k) {
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 2),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('• ', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold)),
+                                  Expanded(
+                                    child: Text(
+                                      k,
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        color: AppColors.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
+                    ),
                   ],
                 ],
               ),
@@ -540,14 +816,7 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
             CircleAvatar(
               radius: 15,
               backgroundColor: AppColors.primaryFixed,
-              child: const Text(
-                'A',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.onPrimaryFixed,
-                ),
-              ),
+              child: const Icon(Icons.person_rounded, size: 16, color: AppColors.onPrimaryFixed),
             ),
           ],
         ],
@@ -560,15 +829,23 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              gradient: AppColors.primaryGradient,
-              borderRadius: BorderRadius.circular(10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.asset(
+              'assets/images/app_logo.png',
+              width: 32,
+              height: 32,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  gradient: AppColors.primaryGradient,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.smart_toy_rounded, color: Colors.white, size: 18),
+              ),
             ),
-            child: const Icon(Icons.smart_toy_rounded,
-                color: Colors.white, size: 18),
           ),
           const SizedBox(width: 8),
           Container(
@@ -578,22 +855,23 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: AppColors.surfaceContainerHigh),
             ),
-            child: const Row(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                SizedBox(
+                const SizedBox(
                   width: 14,
                   height: 14,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    valueColor:
-                        AlwaysStoppedAnimation<Color>(AppColors.primary),
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
                   ),
                 ),
-                SizedBox(width: 8),
+                const SizedBox(width: 8),
                 Text(
-                  'Reviewing study notes...',
-                  style: TextStyle(
+                  _currentDocument != null
+                      ? 'AI Tutor analyzing document & notes...'
+                      : 'AI Tutor thinking...',
+                  style: const TextStyle(
                     fontSize: 12,
                     color: AppColors.onSurfaceVariant,
                   ),
@@ -601,6 +879,66 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFormattedText(String text, bool isUser) {
+    final baseColor = isUser ? Colors.white : AppColors.onSurface;
+    final spans = <TextSpan>[];
+    final parts = text.split('**');
+
+    for (int i = 0; i < parts.length; i++) {
+      if (parts[i].isEmpty) continue;
+      final isBold = i % 2 == 1;
+      spans.add(
+        TextSpan(
+          text: parts[i],
+          style: TextStyle(
+            fontSize: 13,
+            height: 1.45,
+            fontWeight: isBold ? FontWeight.w700 : FontWeight.w400,
+            color: isBold && !isUser ? AppColors.primary : baseColor,
+          ),
+        ),
+      );
+    }
+
+    return SelectableText.rich(
+      TextSpan(children: spans),
+    );
+  }
+
+  Widget _buildErrorCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.errorContainer.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _lastError ?? 'Failed to send message. Please check your network.',
+              style: const TextStyle(fontSize: 12, color: AppColors.onErrorContainer),
+            ),
+          ),
+          if (_lastFailedPrompt != null)
+            TextButton.icon(
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Retry', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.error,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              ),
+              onPressed: () => _sendMessage(_lastFailedPrompt),
+            ),
         ],
       ),
     );
@@ -619,18 +957,6 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
         top: false,
         child: Row(
           children: [
-            IconButton(
-              icon: const Icon(Icons.mic_none_rounded,
-                  color: AppColors.onSurfaceVariant),
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Listening... (Voice note mode)'),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              },
-            ),
             Expanded(
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -641,31 +967,41 @@ class _ChatWithNotesScreenState extends State<ChatWithNotesScreen> {
                 child: TextField(
                   controller: _inputController,
                   textInputAction: TextInputAction.send,
+                  enabled: !_isSending,
                   onSubmitted: (_) => _sendMessage(),
-                  decoration: const InputDecoration(
-                    hintText: 'Ask anything about your notes...',
-                    hintStyle: TextStyle(
-                        fontSize: 13, color: AppColors.onSurfaceVariant),
+                  decoration: InputDecoration(
+                    hintText: _currentDocument != null
+                        ? 'Ask anything about "${_currentDocument!.title}"...'
+                        : 'Ask your AI Tutor anything...',
+                    hintStyle: const TextStyle(fontSize: 13, color: AppColors.onSurfaceVariant),
                     border: InputBorder.none,
                     isDense: true,
-                    contentPadding: EdgeInsets.symmetric(vertical: 10),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
                   ),
                 ),
               ),
             ),
             const SizedBox(width: 6),
             InkWell(
-              onTap: () => _sendMessage(),
+              onTap: _isSending ? null : () => _sendMessage(),
               borderRadius: BorderRadius.circular(24),
               child: Container(
                 width: 42,
                 height: 42,
-                decoration: const BoxDecoration(
-                  gradient: AppColors.primaryGradient,
+                decoration: BoxDecoration(
+                  gradient: _isSending ? null : AppColors.primaryGradient,
+                  color: _isSending ? AppColors.surfaceContainerHigh : null,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.arrow_upward_rounded,
-                    color: Colors.white, size: 20),
+                child: _isSending
+                    ? const Center(
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        ),
+                      )
+                    : const Icon(Icons.arrow_upward_rounded, color: Colors.white, size: 20),
               ),
             ),
           ],

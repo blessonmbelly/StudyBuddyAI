@@ -162,11 +162,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     // Brand Logo
                     Center(
                       child: Container(
-                        width: 64,
-                        height: 64,
+                        width: 72,
+                        height: 72,
                         decoration: BoxDecoration(
-                          gradient: AppColors.primaryGradient,
-                          borderRadius: BorderRadius.circular(18),
+                          borderRadius: BorderRadius.circular(20),
                           boxShadow: [
                             BoxShadow(
                               color: AppColors.primaryContainer.withValues(alpha: 0.35),
@@ -175,10 +174,25 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ],
                         ),
-                        child: const Icon(
-                          Icons.auto_awesome_rounded,
-                          color: Colors.white,
-                          size: 32,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(20),
+                          child: Image.asset(
+                            'assets/images/app_logo.png',
+                            width: 72,
+                            height: 72,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => Container(
+                              decoration: BoxDecoration(
+                                gradient: AppColors.primaryGradient,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Icon(
+                                Icons.auto_awesome_rounded,
+                                color: Colors.white,
+                                size: 36,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),

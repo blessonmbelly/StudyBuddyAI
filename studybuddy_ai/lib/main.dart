@@ -152,23 +152,37 @@ class _AuthGateState extends State<AuthGate> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 72,
-                height: 72,
+                width: 80,
+                height: 80,
                 decoration: BoxDecoration(
-                  gradient: AppColors.primaryGradient,
                   borderRadius: BorderRadius.circular(22),
                   boxShadow: [
                     BoxShadow(
                       color: AppColors.primary.withValues(alpha: 0.3),
-                      blurRadius: 20,
+                      blurRadius: 24,
                       offset: const Offset(0, 8),
                     ),
                   ],
                 ),
-                child: const Icon(
-                  Icons.auto_awesome_rounded,
-                  color: Colors.white,
-                  size: 38,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(22),
+                  child: Image.asset(
+                    'assets/images/app_logo.png',
+                    width: 80,
+                    height: 80,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      decoration: BoxDecoration(
+                        gradient: AppColors.primaryGradient,
+                        borderRadius: BorderRadius.circular(22),
+                      ),
+                      child: const Icon(
+                        Icons.auto_awesome_rounded,
+                        color: Colors.white,
+                        size: 38,
+                      ),
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(height: 20),
@@ -254,9 +268,24 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
         if (mounted) {
           setState(() {
             _documents.clear();
-            _documents.addAll(docs);
+            final seenDocKeys = <String>{};
+            for (final d in docs) {
+              final key = '${d.title.trim().toLowerCase()}_${d.subject.trim().toLowerCase()}';
+              if (!seenDocKeys.contains(key)) {
+                seenDocKeys.add(key);
+                _documents.add(d);
+              }
+            }
+
             _notes.clear();
-            _notes.addAll(notes);
+            final seenNoteKeys = <String>{};
+            for (final n in notes) {
+              final key = '${n.title.trim().toLowerCase()}_${n.courseName.trim().toLowerCase()}';
+              if (!seenNoteKeys.contains(key)) {
+                seenNoteKeys.add(key);
+                _notes.add(n);
+              }
+            }
 
             // Pair notes with their corresponding documents
             for (final doc in _documents) {
@@ -302,7 +331,10 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
 
   void _onNoteExported(NoteItem note) {
     setState(() {
-      _notes.removeWhere((n) => n.id == note.id);
+      _notes.removeWhere((n) =>
+          n.id == note.id ||
+          (n.title.trim().toLowerCase() == note.title.trim().toLowerCase() &&
+              n.courseName.trim().toLowerCase() == note.courseName.trim().toLowerCase()));
       _notes.insert(0, note);
       _selectedNoteForDetails = note;
       if (_selectedDocument != null) {
@@ -314,11 +346,17 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
 
   Future<void> _onDocumentExported(StudyDocument doc) async {
     setState(() {
-      _documents.removeWhere((d) => d.id == doc.id);
+      _documents.removeWhere((d) =>
+          d.id == doc.id ||
+          (d.title.trim().toLowerCase() == doc.title.trim().toLowerCase() &&
+              d.subject.trim().toLowerCase() == doc.subject.trim().toLowerCase()));
       _documents.insert(0, doc);
       _selectedDocument = doc;
       if (doc.generatedNote != null) {
-        _notes.removeWhere((n) => n.id == doc.generatedNote!.id);
+        _notes.removeWhere((n) =>
+            n.id == doc.generatedNote!.id ||
+            (n.title.trim().toLowerCase() == doc.generatedNote!.title.trim().toLowerCase() &&
+                n.courseName.trim().toLowerCase() == doc.generatedNote!.courseName.trim().toLowerCase()));
         _notes.insert(0, doc.generatedNote!);
         _selectedNoteForDetails = doc.generatedNote;
         _currentTabIndex = 2; // Switch to Short Notes tab
@@ -333,7 +371,10 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
         final persistedDoc = await ApiService.saveDocument(doc);
         if (mounted) {
           setState(() {
-            final idx = _documents.indexWhere((d) => d.id == doc.id);
+            final idx = _documents.indexWhere((d) =>
+                d.id == doc.id ||
+                (d.title.trim().toLowerCase() == doc.title.trim().toLowerCase() &&
+                    d.subject.trim().toLowerCase() == doc.subject.trim().toLowerCase()));
             if (idx != -1) {
               _documents[idx] = persistedDoc;
             }
@@ -544,19 +585,13 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
   }
 
   void _openChatWithDocument(StudyDocument doc) {
-    _selectedDocument = doc;
-    if (doc.generatedNote != null) {
-      _openChatWithNote(doc.generatedNote);
-    } else {
-      final synthesizedNote = NoteItem.synthesizedFromDocument(
-        id: doc.id,
-        title: doc.title,
-        subject: doc.subject,
-        text: doc.extractedText,
-        topics: doc.topics,
-      );
-      _openChatWithNote(synthesizedNote);
-    }
+    setState(() {
+      _selectedDocument = doc;
+      if (doc.generatedNote != null) {
+        _selectedNoteForDetails = doc.generatedNote;
+      }
+      _currentTabIndex = 4; // Switch to Chat tab
+    });
   }
 
   void _startQuiz({List<QuizQuestion>? questions, String? quizTitle}) {
@@ -728,6 +763,10 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
     setState(() {
       if (note != null) {
         _selectedNoteForDetails = note;
+        final matchingDoc = _documents.where((d) => d.id == note.id).firstOrNull;
+        if (matchingDoc != null) {
+          _selectedDocument = matchingDoc;
+        }
       }
       _currentTabIndex = 4; // Switch to Chat tab
     });
@@ -772,8 +811,11 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
         availableNotes: _notes,
       ),
       ChatWithNotesScreen(
+        selectedDocument: _selectedDocument,
+        availableDocuments: _documents,
         selectedNote: _selectedNoteForDetails,
         availableNotes: _notes,
+        onSelectDocument: (doc) => setState(() => _selectedDocument = doc),
         onSelectNote: (note) => setState(() => _selectedNoteForDetails = note),
       ),
     ];

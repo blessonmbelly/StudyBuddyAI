@@ -75,6 +75,11 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    conversations = relationship(
+        "Conversation",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 class RefreshToken(Base):
@@ -149,6 +154,11 @@ class Document(Base):
     )
     flashcard_decks = relationship(
         "FlashcardDeck",
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
+    conversations = relationship(
+        "Conversation",
         back_populates="document",
         cascade="all, delete-orphan",
     )
@@ -411,4 +421,74 @@ class FlashcardReview(Base):
     # Relationships
     deck = relationship("FlashcardDeck", back_populates="reviews")
     user = relationship("User", back_populates="flashcard_reviews")
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    document_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    title = Column(String(255), nullable=False, default="General Study Chat")
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    # Relationships
+    user = relationship("User", back_populates="conversations")
+    document = relationship("Document", back_populates="conversations")
+    messages = relationship(
+        "ChatMessage",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="ChatMessage.created_at",
+        lazy="selectin",
+    )
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    conversation_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    sender = Column(String(20), nullable=False)  # 'user' or 'ai'
+    text = Column(Text, nullable=False)
+    note_reference = Column(String(255), nullable=True)
+    key_takeaways = Column(JSONB, nullable=True, default=list)
+    outside_context = Column(Text, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    # Relationships
+    conversation = relationship("Conversation", back_populates="messages")
+
 

@@ -2,6 +2,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:studybuddy_ai/models/study_document.dart';
+import 'package:studybuddy_ai/screens/chat_with_notes_screen.dart';
 import 'package:studybuddy_ai/screens/flashcards_screen.dart';
 import 'package:studybuddy_ai/screens/scan_import_screen.dart';
 
@@ -178,6 +180,43 @@ void main() {
 
       final scanBtn = find.byType(ElevatedButton);
       expect(scanBtn, findsWidgets);
+    });
+
+    testWidgets('ChatWithNotesScreen message bubbles and note chips fit without overflow on 360x640 screen with long titles', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(360 * 2, 640 * 2);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      final longDoc = StudyDocument(
+        id: 'doc-long',
+        title: 'Mechanical Properties of Solids and Elasticity',
+        originalFilename: 'physics_solids.pdf',
+        subject: 'Physics',
+        topics: ['Elasticity', 'Hookes Law', 'Stress and Strain'],
+        extractedText: 'Mechanical properties of solids and elasticity concepts...',
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ChatWithNotesScreen(
+              selectedDocument: longDoc,
+              availableDocuments: [longDoc],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Verify ZERO RenderFlex overflow
+      expect(tester.takeException(), isNull);
+
+      // Verify title badge rendered and constrained inside viewport
+      expect(find.text('AI Tutor'), findsOneWidget);
+      expect(find.text('Context: Mechanical Properties of Solids and Elasticity'), findsOneWidget);
+
+      final chipFinder = find.textContaining('Mechanical Properties of Solids');
+      expect(chipFinder, findsWidgets);
     });
   });
 }

@@ -536,13 +536,105 @@ Return a valid JSON object matching this schema:
         raise handle_gemini_exception(e)
 
 
-# --- Chat with Notes ---
-def answer_student_chat(
+# --- Long Document Chunking & Relevant Text Retrieval ---
+def retrieve_relevant_document_chunks(
+    text: str,
+    query: str,
+    max_chunks: int = 3,
+    chunk_size: int = 1500,
+    chunk_overlap: int = 250,
+) -> str:
+    """
+    Splits long documents into chunks and retrieves the most relevant excerpts
+    matching the student's query to prevent token overflow.
+    If the document is short (<= 3000 chars), returns it directly.
+    """
+    clean_text = text.strip()
+    if not clean_text or len(clean_text) <= 3000:
+        return clean_text
+
+    # Split into overlapping chunks
+    paragraphs = clean_text.split("\n\n")
+    chunks = []
+    current_chunk = []
+    current_len = 0
+
+    for para in paragraphs:
+        p_clean = para.strip()
+        if not p_clean:
+            continue
+        p_len = len(p_clean)
+        if current_len + p_len > chunk_size and current_chunk:
+            chunk_str = "\n\n".join(current_chunk)
+            chunks.append(chunk_str)
+            if chunk_overlap > 0 and len(chunk_str) > chunk_overlap:
+                overlap_text = chunk_str[-chunk_overlap:]
+                current_chunk = [overlap_text, p_clean]
+                current_len = len(overlap_text) + p_len
+            else:
+                current_chunk = [p_clean]
+                current_len = p_len
+        else:
+            current_chunk.append(p_clean)
+            current_len += p_len + 2
+
+    if current_chunk:
+        chunks.append("\n\n".join(current_chunk))
+
+    if not chunks:
+        return clean_text[:4000]
+
+    # Score chunks by query term relevance
+    stop_words = {
+        "what", "when", "where", "which", "who", "whom", "whose", "why", "how",
+        "the", "and", "is", "in", "it", "to", "of", "for", "with", "on", "that",
+        "this", "an", "are", "as", "at", "be", "by", "can", "do", "from", "has",
+        "have", "more", "my", "or", "so", "than", "will", "would", "about", "explain",
+        "tell", "give", "me", "some", "difference", "between"
+    }
+    query_tokens = [
+        re.sub(r"[^\w]", "", w.lower())
+        for w in query.split()
+        if len(w) >= 3 and w.lower() not in stop_words
+    ]
+
+    scored_chunks = []
+    for i, chunk in enumerate(chunks):
+        c_lower = chunk.lower()
+        score = 0
+        for token in query_tokens:
+            if not token:
+                continue
+            occurrences = c_lower.count(token)
+            score += occurrences * (3 if len(token) > 5 else 1)
+        # Position bonus gives slight tie-breaker to earlier overview paragraphs
+        position_bonus = max(0, 1.0 - (i / len(chunks))) * 0.1
+        scored_chunks.append((score + position_bonus, i, chunk))
+
+    scored_chunks.sort(key=lambda x: x[0], reverse=True)
+    top_chunks = scored_chunks[:max_chunks]
+    top_chunks.sort(key=lambda x: x[1])
+
+    retrieved_sections = []
+    for rank, (score, idx, ch) in enumerate(top_chunks, 1):
+        retrieved_sections.append(f"[Excerpt {rank} (from part {idx + 1}/{len(chunks)})]:\n{ch}")
+
+    return "\n\n---\n\n".join(retrieved_sections)
+
+
+# --- AI Tutor Chat ---
+def answer_student_tutor_chat(
     message: str,
-    note_context: str = "",
+    document_context: str = "",
     history: Optional[List[HistoryMessage]] = None,
-) -> ChatResponse:
-    """Answers a student question grounded strictly on the study note."""
+    document_title: Optional[str] = None,
+    subject: Optional[str] = None,
+) -> dict:
+    """
+    AI Tutor: Answers student questions using grounded document context when available,
+    while expanding with pedagogical explanations, analogies, step-by-step guidance,
+    and broader knowledge beyond the notes.
+    """
     client = get_gemini_client()
     if not client:
         raise HTTPException(
@@ -550,62 +642,153 @@ def answer_student_chat(
             detail="Gemini AI is not configured. Please set GEMINI_API_KEY in backend/.env to use AI chat.",
         )
 
-    try:
-        conversation_history = []
-        if history:
-            for h in history[-8:]:
-                h_text = h.content or h.text or ""
-                conversation_history.append(f"{h.role.capitalize()}: {h_text}")
+    has_document = bool(document_context and len(document_context.strip()) >= 10)
+    retrieved_context = ""
+    if has_document:
+        retrieved_context = retrieve_relevant_document_chunks(
+            text=document_context,
+            query=message,
+            max_chunks=3,
+        )
 
-        history_str = "\n".join(conversation_history)
-        prompt = f"""You are StudyBuddy AI, an encouraging and academically rigorous study partner.
-Answer the student's question grounded strictly on the provided study notes.
+    conversation_history = []
+    if history:
+        for h in history[-8:]:
+            h_text = h.content or h.text or ""
+            conversation_history.append(f"{h.role.capitalize()}: {h_text}")
+    history_str = "\n".join(conversation_history) if conversation_history else "No previous messages."
 
-Study Note Context:
+    doc_info = f"Document: {document_title or 'Selected Study Material'}"
+    if subject and subject != "Unknown":
+        doc_info += f" | Subject: {subject}"
+
+    if has_document:
+        prompt = f"""You are StudyBuddy AI Tutor, an inspiring, rigorous, and supportive academic tutor for university and college students.
+
+Study Document Context:
+{doc_info}
 \"\"\"
-{note_context[:40000] if note_context else "General Academic Principles"}
+{retrieved_context}
 \"\"\"
 
-Recent Conversation:
+Recent Conversation History:
 {history_str}
 
 Student Question:
 \"{message}\"
 
-Instructions:
-- Give a clear, academically accurate answer grounded in the study note context (2-4 sentences).
-- If the question cannot be answered from the study context, acknowledge this gently and answer based on general principles while advising the student to check their notes.
-- Include 2-3 bullet point key takeaways.
-- Provide a relevant note_reference title or concept.
+Pedagogical Instructions:
+1. Two-Capability Approach:
+   - When the student asks about concepts covered in their notes, answer accurately and ground the facts directly in their notes.
+   - When the student asks questions beyond their notes, follow-up concepts, real-world analogies, step-by-step derivations, practical applications, or broader academic questions, enthusiastically use your comprehensive general knowledge.
+2. Distinguish Sources Clearly:
+   - In your reply, clearly distinguish what is directly verified from the student's study material versus broader explanations, analogies, or outside academic context (e.g., using headings or phrasing like 'From your notes:' and 'Broader Context & Analogy:').
+3. Student-Friendly Delivery:
+   - Provide clear, engaging explanations.
+   - Use vivid analogies and concrete examples where helpful.
+   - If a multi-step process or problem is involved, explain it step-by-step.
+4. Output Format:
+   - "reply": The complete student-facing explanation.
+   - "note_reference": Title or section from the notes if grounded, or 'Verified Notes & Beyond'.
+   - "key_takeaways": 2-3 concise bullet points summarizing the core insight.
+   - "outside_knowledge_used": Boolean (true if outside explanation, analogies, or broader principles were added; false if strictly confined to note quotes).
 
-Format your response as a JSON object matching this schema:
+Output strictly a JSON object:
 {{
-  "reply": "Clear, grounded answer to the student question.",
-  "note_reference": "Relevant concept or section name from notes",
+  "reply": "Your clear, well-structured tutor response...",
+  "note_reference": "Relevant concept or Verified Notes & Beyond",
   "key_takeaways": [
-    "Key takeaway 1",
-    "Key takeaway 2"
-  ]
+    "Key concept or rule 1",
+    "Key takeaway or application 2"
+  ],
+  "outside_knowledge_used": true
 }}
 """
+    else:
+        prompt = f"""You are StudyBuddy AI Tutor, an inspiring, academically rigorous, and supportive academic tutor for students.
+The student is having a general study conversation without a specific document selected.
+
+Recent Conversation History:
+{history_str}
+
+Student Question:
+\"{message}\"
+
+Pedagogical Instructions:
+1. Provide a comprehensive, accurate, and student-friendly explanation.
+2. Provide step-by-step breakdowns, intuitive analogies, practical real-world applications, and related concepts.
+3. Be encouraging, clear, and focused on active understanding and retention.
+4. Output format:
+   - "reply": The complete student-facing tutor explanation.
+   - "note_reference": "General Knowledge • AI Tutor",
+   - "key_takeaways": 2-3 concise bullet points summarizing the core ideas.
+   - "outside_knowledge_used": true
+
+Output strictly a JSON object:
+{{
+  "reply": "Your clear, well-structured tutor response...",
+  "note_reference": "General Knowledge • AI Tutor",
+  "key_takeaways": [
+    "Key concept 1",
+    "Key concept 2"
+  ],
+  "outside_knowledge_used": true
+}}
+"""
+
+    try:
         response = generate_content_with_retry(
             client=client,
             model=settings.GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                temperature=0.3,
+                temperature=0.35,
             ),
         )
         data = clean_and_parse_json(response.text)
-        return ChatResponse(
-            reply=data.get("reply", "Here is the key insight from your notes."),
-            note_reference=data.get("note_reference", "Verified Study Note"),
-            key_takeaways=data.get("key_takeaways", []),
-        )
+        reply = str(data.get("reply", "")).strip()
+        if not reply:
+            reply = "I'm ready to help you learn! Could you please clarify your question?"
+
+        note_ref = data.get("note_reference")
+        if not note_ref:
+            note_ref = "Verified Notes & Beyond" if has_document else "General Knowledge • AI Tutor"
+
+        raw_takeaways = data.get("key_takeaways", [])
+        takeaways = [str(t).strip() for t in raw_takeaways if str(t).strip()] if isinstance(raw_takeaways, list) else []
+
+        outside_used = bool(data.get("outside_knowledge_used", not has_document))
+
+        return {
+            "reply": reply,
+            "note_reference": note_ref,
+            "key_takeaways": takeaways,
+            "outside_knowledge_used": outside_used,
+        }
     except Exception as e:
-        logger.error(f"Gemini chat error: {e}")
+        logger.error(f"Gemini tutor chat error: {e}")
         raise handle_gemini_exception(e)
+
+
+# --- Chat with Notes ---
+def answer_student_chat(
+    message: str,
+    note_context: str = "",
+    history: Optional[List[HistoryMessage]] = None,
+) -> ChatResponse:
+    """Answers a student question grounded on the study note or general knowledge."""
+    res = answer_student_tutor_chat(
+        message=message,
+        document_context=note_context,
+        history=history,
+    )
+    return ChatResponse(
+        reply=res["reply"],
+        note_reference=res["note_reference"],
+        key_takeaways=res["key_takeaways"],
+        outside_knowledge_used=res.get("outside_knowledge_used", False),
+    )
 
 
 # --- Smart Document Organization ---

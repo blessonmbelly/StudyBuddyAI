@@ -83,32 +83,6 @@ async def extract_file_content(
     # Automatically organize document with smart metadata
     org_data = organize_study_document(extracted_text, filename=filename)
 
-    # Persist in PostgreSQL for authenticated user
-    if current_user:
-        try:
-            new_doc = Document(
-                id=uuid.uuid4(),
-                user_id=current_user.id,
-                title=org_data["title"],
-                original_filename=filename,
-                file_type=ext.replace(".", "").upper(),
-                subject=org_data["subject"],
-                topics=org_data["topics"],
-                extracted_text=extracted_text,
-                word_count=words,
-                page_count=page_count,
-                extraction_method=method,
-                processing_status=org_data["processing_status"],
-            )
-            db.add(new_doc)
-            await db.commit()
-            await db.refresh(new_doc)
-            doc_id = str(new_doc.id)
-        except Exception as e:
-            await db.rollback()
-            # If persistence fails, still return extracted text so user flow is not broken
-            pass
-
     return ExtractionResponse(
         document_id=doc_id,
         filename=filename,
@@ -253,30 +227,6 @@ async def organize_text_content(
     doc_id = f"doc_{uuid.uuid4().hex[:10]}"
     filename = request.filename or "pasted_text"
     org_data = organize_study_document(request.text, filename=filename)
-
-    if current_user:
-        try:
-            new_doc = Document(
-                id=uuid.uuid4(),
-                user_id=current_user.id,
-                title=org_data["title"],
-                original_filename=filename,
-                file_type="TXT",
-                subject=org_data["subject"],
-                topics=org_data["topics"],
-                extracted_text=request.text,
-                word_count=words,
-                page_count=request.page_count or 1,
-                extraction_method="pasted_text" if not request.filename or request.filename == "pasted_text" else "OCR",
-                processing_status=org_data["processing_status"],
-            )
-            db.add(new_doc)
-            await db.commit()
-            await db.refresh(new_doc)
-            doc_id = str(new_doc.id)
-        except Exception:
-            await db.rollback()
-            pass
 
     return DocumentOrganizeResponse(
         document_id=doc_id,

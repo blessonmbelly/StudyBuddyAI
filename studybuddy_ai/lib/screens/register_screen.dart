@@ -102,16 +102,37 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     // Brand Icon
                     Center(
                       child: Container(
-                        width: 56,
-                        height: 56,
+                        width: 64,
+                        height: 64,
                         decoration: BoxDecoration(
-                          gradient: AppColors.primaryGradient,
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(18),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.primaryContainer.withValues(alpha: 0.35),
+                              blurRadius: 18,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
                         ),
-                        child: const Icon(
-                          Icons.person_add_alt_1_rounded,
-                          color: Colors.white,
-                          size: 28,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(18),
+                          child: Image.asset(
+                            'assets/images/app_logo.png',
+                            width: 64,
+                            height: 64,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => Container(
+                              decoration: BoxDecoration(
+                                gradient: AppColors.primaryGradient,
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              child: const Icon(
+                                Icons.person_add_alt_1_rounded,
+                                color: Colors.white,
+                                size: 28,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),

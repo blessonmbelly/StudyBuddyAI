@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import '../models/chat_message.dart';
 import '../models/flashcard.dart';
 import '../models/note.dart';
 import '../models/quiz_question.dart';
@@ -388,34 +389,118 @@ class ApiService {
     }
   }
 
-  /// Chat grounded on study note
-  static Future<Map<String, dynamic>> chatWithNotes({
+  /// Unified AI Tutor chat: persists both turns to PostgreSQL, retrieves relevant
+  /// document context if a document is selected, and allows broader explanations.
+  static Future<ChatMessage> sendTutorMessage({
     required String message,
-    String noteContext = '',
-    List<Map<String, String>> history = const [],
+    String? conversationId,
+    String? documentId,
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/chat');
+      final uri = Uri.parse('$baseUrl/api/chat/message');
+      final payload = <String, dynamic>{
+        'message': message,
+      };
+      if (conversationId != null && conversationId.isNotEmpty) {
+        payload['conversation_id'] = conversationId;
+      }
+      if (documentId != null && documentId.isNotEmpty) {
+        payload['document_id'] = documentId;
+      }
+
       final response = await http
-          .post(
-            uri,
-            headers: authHeaders,
-            body: json.encode({
-              'message': message,
-              'note_context': noteContext,
-              'history': history,
-            }),
-          )
+          .post(uri, headers: authHeaders, body: json.encode(payload))
           .timeout(requestTimeout);
 
-      if (response.statusCode == 200) {
-        return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        return ChatMessage.fromJson(data);
       } else {
         final err = json.decode(utf8.decode(response.bodyBytes));
-        throw Exception(err['detail'] ?? 'Chat request failed (${response.statusCode})');
+        throw Exception(err['detail'] ?? 'AI Tutor request failed (${response.statusCode})');
       }
     } catch (e) {
-      throw Exception(cleanErrorMessage(e, 'Chat'));
+      throw Exception(cleanErrorMessage(e, 'AI Tutor'));
+    }
+  }
+
+  /// Fetch all AI Tutor conversations for the current student, optionally filtered by document
+  static Future<List<ChatConversation>> fetchConversations({String? documentId}) async {
+    try {
+      final query = (documentId != null && documentId.isNotEmpty) ? '?document_id=$documentId' : '';
+      final uri = Uri.parse('$baseUrl/api/chat/conversations$query');
+      final response = await http.get(uri, headers: authHeaders).timeout(requestTimeout);
+
+      if (response.statusCode == 200) {
+        final List<dynamic> raw = json.decode(utf8.decode(response.bodyBytes));
+        return raw.map((c) => ChatConversation.fromJson(c as Map<String, dynamic>)).toList();
+      } else {
+        final err = json.decode(utf8.decode(response.bodyBytes));
+        throw Exception(err['detail'] ?? 'Failed to load conversations (${response.statusCode})');
+      }
+    } catch (e) {
+      throw Exception(cleanErrorMessage(e, 'Fetch conversations'));
+    }
+  }
+
+  /// Fetch a single conversation with its complete persisted message history
+  static Future<ChatConversation> fetchConversation(String conversationId) async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/chat/conversations/$conversationId');
+      final response = await http.get(uri, headers: authHeaders).timeout(requestTimeout);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        return ChatConversation.fromJson(data);
+      } else {
+        final err = json.decode(utf8.decode(response.bodyBytes));
+        throw Exception(err['detail'] ?? 'Failed to load conversation (${response.statusCode})');
+      }
+    } catch (e) {
+      throw Exception(cleanErrorMessage(e, 'Fetch conversation'));
+    }
+  }
+
+  /// Create a new conversation explicitly linked to an optional document
+  static Future<ChatConversation> createConversation({String? documentId, String? title}) async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/chat/conversations');
+      final payload = <String, dynamic>{};
+      if (documentId != null && documentId.isNotEmpty) {
+        payload['document_id'] = documentId;
+      }
+      if (title != null && title.isNotEmpty) {
+        payload['title'] = title;
+      }
+
+      final response = await http
+          .post(uri, headers: authHeaders, body: json.encode(payload))
+          .timeout(requestTimeout);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        return ChatConversation.fromJson(data);
+      } else {
+        final err = json.decode(utf8.decode(response.bodyBytes));
+        throw Exception(err['detail'] ?? 'Failed to create conversation (${response.statusCode})');
+      }
+    } catch (e) {
+      throw Exception(cleanErrorMessage(e, 'Create conversation'));
+    }
+  }
+
+  /// Delete a conversation and all its messages
+  static Future<void> deleteConversation(String conversationId) async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/chat/conversations/$conversationId');
+      final response = await http.delete(uri, headers: authHeaders).timeout(requestTimeout);
+
+      if (response.statusCode != 200) {
+        final err = json.decode(utf8.decode(response.bodyBytes));
+        throw Exception(err['detail'] ?? 'Failed to delete conversation (${response.statusCode})');
+      }
+    } catch (e) {
+      throw Exception(cleanErrorMessage(e, 'Delete conversation'));
     }
   }
 

@@ -277,11 +277,62 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
     note_context: Optional[str] = ""
     history: Optional[List[HistoryMessage]] = []
+    conversation_id: Optional[str] = None
+    document_id: Optional[str] = None
 
 class ChatResponse(BaseModel):
     reply: str
     note_reference: Optional[str] = None
     key_takeaways: Optional[List[str]] = None
+    outside_knowledge_used: bool = False
+    conversation_id: Optional[str] = None
+    message_id: Optional[str] = None
+
+class ChatMessageItem(BaseModel):
+    id: str
+    conversation_id: str
+    sender: str  # 'user' or 'ai'
+    text: str
+    note_reference: Optional[str] = None
+    key_takeaways: Optional[List[str]] = None
+    outside_context: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class ConversationResponse(BaseModel):
+    id: str
+    user_id: str
+    document_id: Optional[str] = None
+    title: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    messages: List[ChatMessageItem] = []
+
+    class Config:
+        from_attributes = True
+
+class ConversationSummaryResponse(BaseModel):
+    id: str
+    document_id: Optional[str] = None
+    title: str
+    message_count: int = 0
+    last_message: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class ConversationCreateRequest(BaseModel):
+    document_id: Optional[str] = None
+    title: Optional[str] = None
+
+class ChatMessageSendRequest(BaseModel):
+    message: str = Field(..., min_length=1)
+    conversation_id: Optional[str] = None
+    document_id: Optional[str] = None
 
 
 # --- Authentication Models ---
