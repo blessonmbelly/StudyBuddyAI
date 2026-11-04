@@ -3,6 +3,7 @@ import '../theme/app_theme.dart';
 import '../models/auth_user.dart';
 import '../models/note.dart';
 import '../models/study_document.dart';
+import 'note_quality_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final Function(int targetTab, {String? scanMode}) onNavigateTab;
@@ -848,6 +849,45 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor:
                         AppColors.primaryFixed.withValues(alpha: 0.5),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => NoteQualityScreen(
+                          documentId: doc.id,
+                          documentTitle: doc.title,
+                          rawText: doc.extractedText,
+                          subject: doc.subject,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(
+                    Icons.analytics_outlined,
+                    size: 13,
+                    color: Color(0xFF0D9488),
+                  ),
+                  label: const Text(
+                    'Quality',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0D9488),
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFCCFBF1),
                     elevation: 0,
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     shape: RoundedRectangleBorder(

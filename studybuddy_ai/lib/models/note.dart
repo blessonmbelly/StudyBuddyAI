@@ -67,6 +67,7 @@ class NoteBullet {
 
 class NoteItem {
   final String id;
+  final String? documentId;
   final String title;
   final String courseCode;
   final String courseName;
@@ -87,6 +88,7 @@ class NoteItem {
 
   NoteItem({
     required this.id,
+    this.documentId,
     required this.title,
     required this.courseCode,
     required this.courseName,
@@ -184,6 +186,7 @@ class NoteItem {
 
     return NoteItem(
       id: json['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      documentId: json['document_id']?.toString(),
       title: json['title']?.toString() ?? 'Synthesized Notes',
       courseCode: courseCode,
       courseName: courseName,
@@ -206,6 +209,7 @@ class NoteItem {
 
   NoteItem copyWith({
     String? id,
+    String? documentId,
     String? title,
     String? courseCode,
     String? courseName,
@@ -226,6 +230,7 @@ class NoteItem {
   }) {
     return NoteItem(
       id: id ?? this.id,
+      documentId: documentId ?? this.documentId,
       title: title ?? this.title,
       courseCode: courseCode ?? this.courseCode,
       courseName: courseName ?? this.courseName,
@@ -256,6 +261,7 @@ class NoteItem {
     final words = text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
     return NoteItem(
       id: id,
+      documentId: id,
       title: title,
       courseCode: subject.isNotEmpty ? subject.split(' ').first.toUpperCase() : 'STUDY',
       courseName: subject.isNotEmpty ? subject : 'General Academic Study',

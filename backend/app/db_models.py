@@ -80,6 +80,11 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    evaluations = relationship(
+        "NoteEvaluation",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 class RefreshToken(Base):
@@ -160,6 +165,12 @@ class Document(Base):
     conversations = relationship(
         "Conversation",
         back_populates="document",
+        cascade="all, delete-orphan",
+    )
+    evaluation = relationship(
+        "NoteEvaluation",
+        back_populates="document",
+        uselist=False,
         cascade="all, delete-orphan",
     )
 
@@ -492,3 +503,53 @@ class ChatMessage(Base):
     conversation = relationship("Conversation", back_populates="messages")
 
 
+
+
+class NoteEvaluation(Base):
+    __tablename__ = "note_evaluations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    document_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+        unique=True,
+    )
+    topic_relevance_score = Column(Integer, nullable=False, default=0)
+    factual_accuracy_score = Column(Integer, nullable=False, default=0)
+    content_completeness_score = Column(Integer, nullable=False, default=0)
+    overall_score = Column(Integer, nullable=False, default=0)
+    quality_grade = Column(String(20), nullable=False, default="N/A")
+    summary = Column(Text, nullable=False, default="")
+    flagged_claims = Column(JSONB, nullable=False, default=list)
+    missing_topics = Column(JSONB, nullable=False, default=list)
+    verified_facts = Column(JSONB, nullable=False, default=list)
+    uncertain_claims = Column(JSONB, nullable=False, default=list)
+    additional_context = Column(JSONB, nullable=False, default=list)
+    strengths = Column(JSONB, nullable=False, default=list)
+    weaknesses = Column(JSONB, nullable=False, default=list)
+    recommendations = Column(JSONB, nullable=False, default=list)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    # Relationships
+    user = relationship("User", back_populates="evaluations")
+    document = relationship("Document", back_populates="evaluation")

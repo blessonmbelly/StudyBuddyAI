@@ -4,6 +4,7 @@ import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/gradient_button.dart';
+import '../widgets/google_sign_in_button.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -24,6 +25,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
 
   bool _isLoading = false;
+  bool _isGoogleLoading = false;
   bool _obscurePassword = true;
   String? _errorMessage;
 
@@ -59,6 +61,32 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         setState(() {
           _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _submitGoogleSignIn() async {
+    setState(() {
+      _isGoogleLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final user = await AuthService.instance.signInWithGoogle();
+      if (!mounted) return;
+      if (user != null) {
+        widget.onLoginSuccess(user);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = e.toString().replaceAll('Exception: ', '').trim();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isGoogleLoading = false;
         });
       }
     }
@@ -114,6 +142,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 ActionChip(
                   label: const Text('Emulator (10.0.2.2)'),
                   onPressed: () => serverController.text = 'http://10.0.2.2:8000',
+                ),
+                ActionChip(
+                  label: const Text('Wi-Fi LAN (192.168.29.46)'),
+                  onPressed: () => serverController.text = 'http://192.168.29.46:8000',
                 ),
               ],
             ),
@@ -359,7 +391,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     // Sign In Button
                     GradientButton(
                       height: 52,
-                      onPressed: _isLoading ? null : _submitLogin,
+                      onPressed: (_isLoading || _isGoogleLoading) ? null : _submitLogin,
                       child: _isLoading
                           ? const SizedBox(
                               width: 22,
@@ -377,6 +409,44 @@ class _LoginScreenState extends State<LoginScreen> {
                                 color: Colors.white,
                               ),
                             ),
+                    ),
+                    const SizedBox(height: 18),
+
+                    // OR Divider
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            height: 1,
+                            color: AppColors.surfaceContainerHigh,
+                          ),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 14),
+                          child: Text(
+                            'OR',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.outline,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Container(
+                            height: 1,
+                            color: AppColors.surfaceContainerHigh,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+
+                    // Continue with Google
+                    GoogleSignInButton(
+                      onPressed: (_isLoading || _isGoogleLoading) ? null : _submitGoogleSignIn,
+                      isLoading: _isGoogleLoading,
                     ),
                     const SizedBox(height: 20),
 

@@ -7,6 +7,7 @@ import '../models/flashcard.dart';
 import '../models/note.dart';
 import '../models/quiz_question.dart';
 import '../models/study_document.dart';
+import '../models/note_evaluation.dart';
 import 'auth_service.dart';
 
 class ApiService {
@@ -48,6 +49,29 @@ class ApiService {
       throw HttpException('Server returned status ${response.statusCode}');
     } catch (e) {
       throw Exception('Unable to reach backend at $baseUrl ($e).');
+    }
+  }
+
+  /// Authenticate with backend using a Firebase or Google ID token
+  static Future<Map<String, dynamic>> loginWithGoogle(String idToken) async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/auth/google');
+      final response = await http
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({'id_token': idToken}),
+          )
+          .timeout(requestTimeout);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      } else {
+        final err = json.decode(utf8.decode(response.bodyBytes));
+        throw Exception(err['detail'] ?? 'Google Sign-In failed (${response.statusCode})');
+      }
+    } catch (e) {
+      throw Exception(cleanErrorMessage(e, 'Google Sign-In'));
     }
   }
 
@@ -680,6 +704,91 @@ class ApiService {
       }
     } catch (e) {
       throw Exception(cleanErrorMessage(e, 'Delete flashcard deck'));
+    }
+  }
+
+
+  /// Evaluate an existing document's notes using Gemini
+  static Future<NoteEvaluation> evaluateDocument(
+    String documentId, {
+    bool forceRefresh = false,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/evaluations/document/$documentId?force_refresh=$forceRefresh');
+      final response = await http
+          .post(uri, headers: authHeaders)
+          .timeout(const Duration(seconds: 60));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        return NoteEvaluation.fromJson(data);
+      } else {
+        final err = json.decode(utf8.decode(response.bodyBytes));
+        throw Exception(err['detail'] ?? 'Note evaluation failed (${response.statusCode})');
+      }
+    } catch (e) {
+      throw Exception(cleanErrorMessage(e, 'Note quality evaluation'));
+    }
+  }
+
+  /// Retrieve existing evaluation for a document
+  static Future<NoteEvaluation?> getDocumentEvaluation(String documentId) async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/evaluations/document/$documentId');
+      final response = await http
+          .get(uri, headers: authHeaders)
+          .timeout(const Duration(seconds: 20));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        return NoteEvaluation.fromJson(data);
+      } else if (response.statusCode == 404) {
+        return null; // Not yet evaluated
+      } else {
+        final err = json.decode(utf8.decode(response.bodyBytes));
+        throw Exception(err['detail'] ?? 'Failed to load evaluation (${response.statusCode})');
+      }
+    } catch (e) {
+      if (e.toString().contains('404')) return null;
+      throw Exception(cleanErrorMessage(e, 'Fetch evaluation'));
+    }
+  }
+
+  /// Evaluate arbitrary text or note content
+  static Future<NoteEvaluation> evaluateText({
+    required String text,
+    String? title,
+    String? subject,
+    String? documentId,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/evaluations/evaluate-text');
+      final payload = <String, dynamic>{
+        'text': text,
+      };
+      if (title != null) {
+        payload['title'] = title;
+      }
+      if (subject != null) {
+        payload['subject'] = subject;
+      }
+      if (documentId != null) {
+        payload['document_id'] = documentId;
+      }
+
+      final response = await http
+          .post(uri, headers: authHeaders, body: json.encode(payload))
+          .timeout(const Duration(seconds: 60));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        return NoteEvaluation.fromJson(data);
+      } else {
+        final err = json.decode(utf8.decode(response.bodyBytes));
+        throw Exception(err['detail'] ?? 'Evaluation failed (${response.statusCode})');
+      }
+    } catch (e) {
+      throw Exception(cleanErrorMessage(e, 'Note evaluation'));
     }
   }
 }

@@ -180,8 +180,8 @@ def generate_study_notes(
         )
 
     try:
-        # Large context window support (up to 60,000 chars safely)
-        truncated_text = text[:60000]
+        # Truncate text sensibly for fast, high-yield study notes (up to 15,000 chars)
+        truncated_text = text[:15000].strip()
         course_hint = (
             f"Target Course: {course_name} ({course_code})"
             if course_name and course_code
@@ -193,7 +193,7 @@ def generate_study_notes(
             else "Extract a clear, concise academic topic title reflecting the core subject."
         )
 
-        prompt = f"""You are an elite academic AI tutor. Analyze this study material and create a comprehensive, structured short-note study deck.
+        prompt = f"""You are an elite academic AI tutor. Analyze this study material and create a concise, high-yield structured short-note study deck.
 {course_hint}
 {title_hint}
 
@@ -201,6 +201,12 @@ Study Material:
 \"\"\"
 {truncated_text}
 \"\"\"
+
+BREVITY & SPEED REQUIREMENTS:
+- Be concise and high-yield. Avoid overly long explanations.
+- Provide 2-3 focused sections with 2-3 crisp bullet points each (1 concise sentence per bullet).
+- Provide top 3 key definitions (1 sentence each).
+- Provide 1-2 common exam pitfalls (concise point of confusion and distinction).
 
 Return a valid JSON object matching this schema:
 {{
@@ -343,7 +349,8 @@ def generate_quiz_questions(
         )
 
     try:
-        truncated_text = text[:60000]
+        # Truncate text sensibly for fast, high-yield study notes (up to 15,000 chars)
+        truncated_text = text[:15000].strip()
         prompt = f"""You are a master academic examiner. Based strictly on the study text below, create {num_questions} high-quality multiple-choice questions (MCQs).
 
 Study Text:
@@ -462,7 +469,8 @@ def generate_flashcards(
         )
 
     try:
-        truncated_text = text[:60000]
+        # Truncate text sensibly for fast, high-yield study notes (up to 15,000 chars)
+        truncated_text = text[:15000].strip()
         title_hint = f'"{deck_title}"' if deck_title else "a descriptive academic deck title"
         subj_hint = f'"{subject}"' if subject else "the primary academic discipline"
 
@@ -876,3 +884,215 @@ Output strictly a JSON object matching this schema:
             "processing_status": "fallback",
         }
 
+
+# --- AI-Based Note Quality Evaluation ---
+
+def evaluate_note_quality(
+    text: str,
+    title: Optional[str] = None,
+    subject: Optional[str] = None,
+) -> dict:
+    """
+    Evaluates study notes using Gemini across:
+    1. Topic relevance (0-100)
+    2. Factual accuracy (0-100)
+    3. Content completeness (0-100)
+    Identifies incorrect, misleading, unsupported, and outdated claims.
+    Flags missing important topics and distinguishes verified facts from uncertain claims.
+    Enforces strict epistemic caution (never claims 100% accuracy without evidence).
+    """
+    client = get_gemini_client()
+    if not client:
+        raise HTTPException(
+            status_code=503,
+            detail="Gemini AI is not configured. Please add a valid GEMINI_API_KEY to backend/.env.",
+        )
+
+    clean_text = text.strip()
+    if len(clean_text) < 15:
+        raise HTTPException(
+            status_code=400,
+            detail="Text is too brief for a comprehensive quality evaluation. Please provide at least a couple of sentences.",
+        )
+
+    # Truncate text sensibly for fast, high-yield quality evaluation (up to 8,000 characters)
+    eval_text = clean_text[:8000]
+
+    context_header = []
+    if title:
+        context_header.append(f"Document Title: {title}")
+    if subject and subject != "Unknown":
+        context_header.append(f"Subject / Field: {subject}")
+    doc_header_str = "\n".join(context_header) if context_header else "Document Topic: General Study Material"
+
+    prompt = (
+        "You are a rigorous Academic Note Quality Evaluator and Fact-Checking Specialist.\n"
+        "Your task is to analyze, verify, and score the following student study notes.\n\n"
+        f"{doc_header_str}\n\n"
+        "Study Notes Content:\n"
+        "-------------------\n"
+        f"{eval_text}\n"
+        "-------------------\n\n"
+        "Carefully evaluate the notes across three distinct dimensions (0 to 100):\n"
+        "1. Topic Relevance (0-100): Assess whether the content remains tightly focused on the stated topic and scope. Deduct points for irrelevant digressions or unrelated topics.\n"
+        "2. Factual Accuracy (0-100): Compare factual statements against verified academic standards, peer-reviewed consensus, authoritative textbooks, or standard scientific definitions.\n"
+        "3. Content Completeness (0-100): Assess whether foundational concepts, core formulas, essential definitions, or primary mechanisms are covered, or whether critical material is missing.\n\n"
+        "BREVITY & PRECISION GUIDELINES (Keep outputs concise to maximize study clarity and speed):\n"
+        "- FLAG GENUINE ISSUES ONLY: Identify up to 2-3 most significant problematic statements (or empty list if the note is sound). "
+        "Categorize as 'INCORRECT', 'MISLEADING', 'UNSUPPORTED', or 'OUTDATED'. "
+        "Keep 'explanation', 'evidence', and 'correction' to 1-2 crisp sentences each.\n"
+        "- MISSING TOPICS: Identify top 2 critical/high missing subtopics. Provide a 1-sentence 'recommended_overview' for each.\n"
+        "- VERIFIED FACTS: Identify top 2-3 core verified facts with 1-sentence corroboration.\n"
+        "- UNCERTAIN CLAIMS: Identify 1-2 debated or context-dependent claims (or empty list if none).\n"
+        "- OVERALL: Provide a crisp 2-sentence summary, top 2 strengths, 2 weaknesses, and 2-3 concrete study recommendations.\n\n"
+        "Output STRICTLY a JSON object with this structure:\n"
+        "{\n"
+        '  "topic_relevance_score": 85,\n'
+        '  "factual_accuracy_score": 80,\n'
+        '  "content_completeness_score": 70,\n'
+        '  "overall_score": 79,\n'
+        '  "quality_grade": "B",\n'
+        '  "summary": "...",\n'
+        '  "flagged_claims": [\n'
+        "    {\n"
+        '      "statement": "...",\n'
+        '      "issue_type": "INCORRECT",\n'
+        '      "severity": "HIGH",\n'
+        '      "explanation": "...",\n'
+        '      "evidence": "...",\n'
+        '      "correction": "..."\n'
+        "    }\n"
+        "  ],\n"
+        '  "missing_topics": [\n'
+        "    {\n"
+        '      "topic": "...",\n'
+        '      "importance": "HIGH",\n'
+        '      "explanation": "...",\n'
+        '      "recommended_overview": "..."\n'
+        "    }\n"
+        "  ],\n"
+        '  "verified_facts": [\n'
+        "    {\n"
+        '      "fact": "...",\n'
+        '      "corroboration": "..."\n'
+        "    }\n"
+        "  ],\n"
+        '  "uncertain_claims": [\n'
+        "    {\n"
+        '      "claim": "...",\n'
+        '      "reason": "..."\n'
+        "    }\n"
+        "  ],\n"
+        '  "additional_context": ["..."],\n'
+        '  "strengths": ["..."],\n'
+        '  "weaknesses": ["..."],\n'
+        '  "recommendations": ["..."]\n'
+        "}"
+    )
+
+    try:
+        response = generate_content_with_retry(
+            client=client,
+            model=settings.GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.2,
+            ),
+        )
+
+        data = clean_and_parse_json(response.text)
+
+        # Normalize and validate scores
+        relevance = max(0, min(100, int(data.get("topic_relevance_score", 75))))
+        accuracy = max(0, min(98, int(data.get("factual_accuracy_score", 75))))  # Enforce never 100% without evidence
+        completeness = max(0, min(100, int(data.get("content_completeness_score", 70))))
+        overall = int(data.get("overall_score") or round(0.4 * accuracy + 0.35 * completeness + 0.25 * relevance))
+        overall = max(0, min(98, overall))
+
+        grade = str(data.get("quality_grade", "")).strip() or (
+            "A" if overall >= 90 else "B+" if overall >= 80 else "B" if overall >= 70 else "C" if overall >= 60 else "D"
+        )
+
+        summary = str(data.get("summary", "")).strip() or "Comprehensive academic evaluation completed."
+
+        # Parse flagged claims
+        raw_claims = data.get("flagged_claims", [])
+        flagged_claims = []
+        if isinstance(raw_claims, list):
+            for c in raw_claims:
+                if isinstance(c, dict) and c.get("statement"):
+                    flagged_claims.append({
+                        "statement": str(c.get("statement", "")).strip(),
+                        "issue_type": str(c.get("issue_type", "INCORRECT")).strip().upper(),
+                        "severity": str(c.get("severity", "MEDIUM")).strip().upper(),
+                        "explanation": str(c.get("explanation", "")).strip(),
+                        "evidence": str(c.get("evidence", "")).strip(),
+                        "correction": str(c.get("correction", "")).strip() if c.get("correction") else None,
+                    })
+
+        # Parse missing topics
+        raw_missing = data.get("missing_topics", [])
+        missing_topics = []
+        if isinstance(raw_missing, list):
+            for m in raw_missing:
+                if isinstance(m, dict) and m.get("topic"):
+                    missing_topics.append({
+                        "topic": str(m.get("topic", "")).strip(),
+                        "importance": str(m.get("importance", "HIGH")).strip().upper(),
+                        "explanation": str(m.get("explanation", "")).strip(),
+                        "recommended_overview": str(m.get("recommended_overview", "")).strip() if m.get("recommended_overview") else None,
+                    })
+
+        # Parse verified facts
+        raw_facts = data.get("verified_facts", [])
+        verified_facts = []
+        if isinstance(raw_facts, list):
+            for vf in raw_facts:
+                if isinstance(vf, dict) and vf.get("fact"):
+                    verified_facts.append({
+                        "fact": str(vf.get("fact", "")).strip(),
+                        "corroboration": str(vf.get("corroboration", "")).strip(),
+                    })
+
+        # Parse uncertain claims
+        raw_uncertain = data.get("uncertain_claims", [])
+        uncertain_claims = []
+        if isinstance(raw_uncertain, list):
+            for uc in raw_uncertain:
+                if isinstance(uc, dict) and uc.get("claim"):
+                    uncertain_claims.append({
+                        "claim": str(uc.get("claim", "")).strip(),
+                        "reason": str(uc.get("reason", "")).strip(),
+                    })
+
+        # Parse list fields
+        def _clean_str_list(raw_list):
+            if not isinstance(raw_list, list):
+                return []
+            return [str(item).strip() for item in raw_list if str(item).strip()]
+
+        additional_context = _clean_str_list(data.get("additional_context", []))
+        strengths = _clean_str_list(data.get("strengths", []))
+        weaknesses = _clean_str_list(data.get("weaknesses", []))
+        recommendations = _clean_str_list(data.get("recommendations", []))
+
+        return {
+            "topic_relevance_score": relevance,
+            "factual_accuracy_score": accuracy,
+            "content_completeness_score": completeness,
+            "overall_score": overall,
+            "quality_grade": grade,
+            "summary": summary,
+            "flagged_claims": flagged_claims,
+            "missing_topics": missing_topics,
+            "verified_facts": verified_facts,
+            "uncertain_claims": uncertain_claims,
+            "additional_context": additional_context,
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+            "recommendations": recommendations,
+        }
+    except Exception as e:
+        logger.error(f"Error during note quality evaluation: {e}")
+        raise handle_gemini_exception(e)

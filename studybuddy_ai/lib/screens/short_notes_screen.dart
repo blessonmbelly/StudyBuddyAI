@@ -4,6 +4,7 @@ import '../models/note.dart';
 import '../models/quiz_question.dart';
 import '../services/api_service.dart';
 import '../widgets/gradient_button.dart';
+import 'note_quality_screen.dart';
 
 class ShortNotesScreen extends StatefulWidget {
   final NoteItem? note;
@@ -418,6 +419,30 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
             AppColors.surfaceContainerHigh, AppColors.onSurfaceVariant),
         _buildPill(Icons.check_circle_outline_rounded, '${_note!.accuracyPercent}% Density',
             AppColors.emeraldBg, AppColors.emerald),
+        InkWell(
+          onTap: () {
+            if (_note != null) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => NoteQualityScreen(
+                    documentId: _note!.documentId,
+                    documentTitle: _note!.title,
+                    rawText: _note!.rawTranscript,
+                    subject: _note!.courseName,
+                  ),
+                ),
+              );
+            }
+          },
+          borderRadius: BorderRadius.circular(20),
+          child: _buildPill(
+            Icons.fact_check_rounded,
+            'Check Quality',
+            const Color(0xFFECFDF5),
+            const Color(0xFF047857),
+          ),
+        ),
         _buildPill(Icons.format_list_bulleted_rounded, '${_note!.keyTermsCount} Key Terms',
             AppColors.surfaceContainerHigh, AppColors.onSurfaceVariant),
       ],
@@ -1190,6 +1215,39 @@ class _ShortNotesScreenState extends State<ShortNotesScreen> {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppColors.primary,
                       side: const BorderSide(color: AppColors.surfaceContainerHigh),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      if (_note != null) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => NoteQualityScreen(
+                              documentId: _note!.documentId,
+                              documentTitle: _note!.title,
+                              rawText: _note!.rawTranscript,
+                              subject: _note!.courseName,
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.analytics_outlined, size: 15),
+                    label: const Text(
+                      'Quality',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF0D9488),
+                      side: const BorderSide(color: Color(0xFF99F6E4)),
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(20),

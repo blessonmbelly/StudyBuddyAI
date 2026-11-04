@@ -31,7 +31,8 @@ async def grant_all():
         tables = [
             'users', 'refresh_tokens', 'documents', 'generated_notes',
             'quizzes', 'quiz_attempts', 'flashcard_decks', 'flashcards',
-            'flashcard_reviews', 'alembic_version'
+            'flashcard_reviews', 'conversations', 'chat_messages', 'note_evaluations',
+            'alembic_version'
         ]
         print("\nVerifying tables:")
         for t in tables:

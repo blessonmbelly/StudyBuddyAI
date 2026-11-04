@@ -40,6 +40,73 @@ async def generate_notes(
             detail="Text is too short to generate a meaningful study deck. Please provide at least a couple of sentences."
         )
 
+    # 1. Fast Cache Check: If note already exists for this document and user, return immediately
+    if current_user and req.document_id and not req.force_regenerate:
+        try:
+            doc_uuid = uuid.UUID(req.document_id)
+            existing_stmt = (
+                select(GeneratedNote)
+                .where(
+                    GeneratedNote.document_id == doc_uuid,
+                    GeneratedNote.user_id == current_user.id,
+                )
+                .order_by(GeneratedNote.created_at.desc())
+            )
+            existing_res = await db.execute(existing_stmt)
+            existing_note = existing_res.scalar_one_or_none()
+            if existing_note:
+                from ..models import NoteSection, NoteBullet, KeyDefinitionItem, ExamPitfallItem
+                sec_objs = []
+                for s in (existing_note.sections or []):
+                    sec_objs.append(
+                        NoteSection(
+                            title=s.get("title", ""),
+                            description=s.get("description", ""),
+                            bullets=[
+                                NoteBullet(
+                                    term=b.get("term", ""),
+                                    definition=b.get("definition", ""),
+                                    icon_name=b.get("icon_name", "school"),
+                                )
+                                for b in s.get("bullets", [])
+                            ],
+                        )
+                    )
+                kd_objs = [
+                    KeyDefinitionItem(
+                        title=d.get("title", ""),
+                        tag=d.get("tag", "Definition"),
+                        body=d.get("body", ""),
+                    )
+                    for d in (existing_note.key_definitions or [])
+                ]
+                ep_objs = [
+                    ExamPitfallItem(
+                        title=p.get("title", ""),
+                        description=p.get("description", ""),
+                        concept_a=p.get("concept_a", ""),
+                        concept_b=p.get("concept_b", ""),
+                    )
+                    for p in (existing_note.exam_pitfalls or [])
+                ]
+                return NoteGenerateResponse(
+                    id=str(existing_note.id),
+                    title=existing_note.title,
+                    course_name=existing_note.course_name,
+                    course_code=existing_note.course_code,
+                    summary=existing_note.summary,
+                    sections=sec_objs,
+                    key_definitions=kd_objs,
+                    exam_pitfalls=ep_objs,
+                    raw_transcript=existing_note.raw_transcript or "",
+                    accuracy_percent=existing_note.accuracy_percent or 92,
+                    key_terms_count=existing_note.key_terms_count or len(kd_objs),
+                    read_time=existing_note.read_time or "4 min read",
+                    document_id=str(existing_note.document_id) if existing_note.document_id else None,
+                )
+        except Exception as e:
+            pass
+
     notes = generate_study_notes(
         text=cleaned_text,
         course_code=req.course_code,

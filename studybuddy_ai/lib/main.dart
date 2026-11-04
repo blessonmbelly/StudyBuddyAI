@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/services.dart';
 import 'theme/app_theme.dart';
 import 'models/auth_user.dart';
@@ -17,8 +18,13 @@ import 'screens/flashcard_study_screen.dart';
 import 'screens/chat_with_notes_screen.dart';
 import 'widgets/app_nav_bar.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    debugPrint('Firebase.initializeApp notice (pending google-services.json): $e');
+  }
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,

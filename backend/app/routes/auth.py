@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import logging
+import secrets
 from typing import Optional
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -13,12 +14,14 @@ from ..auth import (
     get_optional_current_user,
     hash_password,
     hash_token,
+    verify_firebase_or_google_token,
     verify_password,
 )
 from ..config import settings
 from ..database import get_db
 from ..db_models import RefreshToken, User
 from ..models import (
+    GoogleLoginRequest,
     LogoutRequest,
     MessageResponse,
     RefreshTokenRequest,
@@ -123,6 +126,84 @@ async def login_user(
             detail="This account has been deactivated. Please contact support.",
         )
 
+    access_token = create_access_token(user.id, user.email)
+    raw_refresh, refresh_hash, refresh_expires_at = create_refresh_token()
+
+    refresh_record = RefreshToken(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        token_hash=refresh_hash,
+        expires_at=refresh_expires_at,
+        revoked=False,
+    )
+    db.add(refresh_record)
+    await db.commit()
+    await db.refresh(user)
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=raw_refresh,
+        token_type="bearer",
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        user=UserResponse.model_validate(user),
+    )
+
+
+@router.post(
+    "/google",
+    response_model=TokenResponse,
+    summary="Sign in or register with Google / Firebase Authentication",
+)
+async def google_sign_in(
+    req: GoogleLoginRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Verifies the provided Firebase/Google ID token.
+    Retrieves the existing PostgreSQL user by verified email or creates a new one.
+    Issues existing JWT access and refresh tokens.
+    Preserves all existing user documents, notes, quizzes, and chat history.
+    """
+    # 1. Verify token securely
+    token_claims = verify_firebase_or_google_token(req.id_token)
+    email = (token_claims.get("email") or "").strip().lower()
+
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The Google account does not have an associated email address.",
+        )
+
+    # 2. Retrieve existing user or create a new user
+    stmt = select(User).where(User.email == email)
+    res = await db.execute(stmt)
+    user = res.scalar_one_or_none()
+
+    if user:
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account has been deactivated. Please contact support.",
+            )
+        # Update full name if not previously set
+        google_name = token_claims.get("name")
+        if (not user.full_name or not user.full_name.strip()) and google_name:
+            user.full_name = google_name.strip()
+    else:
+        # Create brand-new user with a secure random password hash placeholder
+        random_pwd = secrets.token_urlsafe(32)
+        google_name = token_claims.get("name")
+        user = User(
+            id=uuid.uuid4(),
+            email=email,
+            hashed_password=hash_password(random_pwd),
+            full_name=google_name.strip() if google_name else None,
+            is_active=True,
+        )
+        db.add(user)
+        await db.flush()
+
+    # 3. Issue session tokens
     access_token = create_access_token(user.id, user.email)
     raw_refresh, refresh_hash, refresh_expires_at = create_refresh_token()
 

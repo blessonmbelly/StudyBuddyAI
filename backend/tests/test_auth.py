@@ -36,11 +36,13 @@ from app.auth import (
     get_current_user,
     hash_password,
     hash_token,
+    verify_firebase_or_google_token,
     verify_password,
 )
 from app.config import settings
 from app.db_models import RefreshToken, User
 from app.models import (
+    GoogleLoginRequest,
     LogoutRequest,
     RefreshTokenRequest,
     UserLoginRequest,
@@ -48,6 +50,7 @@ from app.models import (
 )
 from app.routes.auth import (
     get_my_profile,
+    google_sign_in,
     login_user,
     logout_user,
     refresh_session,
@@ -413,3 +416,84 @@ async def test_get_current_user_missing_token():
         await get_current_user(token=None, db=mock_db)
     assert exc.value.status_code == 401
     assert "authentication required" in exc.value.detail.lower()
+
+
+# --- 11. Google / Firebase Authentication Tests ---
+
+def test_verify_firebase_token_mock_dev():
+    claims = verify_firebase_or_google_token("mock-firebase-token:googleuser@studybuddy.ai:Google Student:uid_google_123")
+    assert claims["email"] == "googleuser@studybuddy.ai"
+    assert claims["name"] == "Google Student"
+    assert claims["uid"] == "uid_google_123"
+
+
+def test_verify_firebase_token_empty():
+    with pytest.raises(HTTPException) as exc:
+        verify_firebase_or_google_token("")
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.anyio
+async def test_google_sign_in_creates_new_user():
+    mock_db = AsyncMock()
+    # User does not exist initially
+    mock_res = MagicMock()
+    mock_res.scalar_one_or_none.return_value = None
+    mock_db.execute.return_value = mock_res
+
+    req = GoogleLoginRequest(id_token="mock-firebase-token:newgoogle@studybuddy.ai:New Google User:uid_456")
+    response = await google_sign_in(req, db=mock_db)
+
+    assert response.token_type == "bearer"
+    assert response.access_token is not None
+    assert response.refresh_token is not None
+    assert response.user.email == "newgoogle@studybuddy.ai"
+    assert response.user.full_name == "New Google User"
+    assert mock_db.commit.called
+
+
+@pytest.mark.anyio
+async def test_google_sign_in_retrieves_existing_user():
+    mock_db = AsyncMock()
+    existing_id = uuid.uuid4()
+    existing_user = User(
+        id=existing_id,
+        email="existing@studybuddy.ai",
+        hashed_password=hash_password("ExistingPassword123!"),
+        full_name="Original Name",
+        is_active=True,
+    )
+    mock_res = MagicMock()
+    mock_res.scalar_one_or_none.return_value = existing_user
+    mock_db.execute.return_value = mock_res
+
+    req = GoogleLoginRequest(id_token="mock-firebase-token:existing@studybuddy.ai:Original Name:uid_789")
+    response = await google_sign_in(req, db=mock_db)
+
+    # Must preserve the exact same user.id so all documents, notes, quizzes remain intact
+    assert response.user.id == existing_id
+    assert response.user.email == "existing@studybuddy.ai"
+    assert response.access_token is not None
+    assert mock_db.commit.called
+
+
+@pytest.mark.anyio
+async def test_google_sign_in_deactivated_user():
+    mock_db = AsyncMock()
+    deactivated_user = User(
+        id=uuid.uuid4(),
+        email="blocked@studybuddy.ai",
+        hashed_password=hash_password("BlockedPassword123!"),
+        full_name="Blocked User",
+        is_active=False,
+    )
+    mock_res = MagicMock()
+    mock_res.scalar_one_or_none.return_value = deactivated_user
+    mock_db.execute.return_value = mock_res
+
+    req = GoogleLoginRequest(id_token="mock-firebase-token:blocked@studybuddy.ai:Blocked:uid_000")
+    with pytest.raises(HTTPException) as exc:
+        await google_sign_in(req, db=mock_db)
+    assert exc.value.status_code == 403
+    assert "deactivated" in exc.value.detail.lower()
+

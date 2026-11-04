@@ -28,6 +28,10 @@ class Settings:
     REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development").strip().lower()
 
+    # Firebase Authentication Settings
+    FIREBASE_PROJECT_ID: str = os.getenv("FIREBASE_PROJECT_ID", "").strip()
+    FIREBASE_CREDENTIALS_PATH: str = os.getenv("FIREBASE_CREDENTIALS_PATH", "").strip()
+
     @property
     def secret_key(self) -> str:
         """

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import '../models/auth_user.dart';
 import 'api_service.dart';
@@ -154,6 +156,74 @@ class AuthService {
     }
   }
 
+  /// Authenticates using Google Sign-In and Firebase Auth.
+  /// Returns [AuthUser] on successful login/registration.
+  /// Returns null if the user dismissed/cancelled the sign-in modal.
+  /// Throws user-friendly [Exception] on errors.
+  Future<AuthUser?> signInWithGoogle() async {
+    try {
+      final GoogleSignIn googleSignIn = GoogleSignIn(
+        scopes: ['email', 'profile'],
+      );
+
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+      if (googleUser == null) {
+        // User voluntarily dismissed or cancelled the Google account chooser
+        return null;
+      }
+
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+
+      String? tokenToSend;
+
+      // Exchange credential with Firebase Auth if available
+      try {
+        final AuthCredential credential = GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
+        );
+
+        final UserCredential userCredential =
+            await FirebaseAuth.instance.signInWithCredential(credential);
+
+        tokenToSend = await userCredential.user?.getIdToken();
+      } catch (_) {
+        // Fallback: If Firebase native plugin is offline or initializing,
+        // use Google OAuth2 ID token directly (backend verifies both).
+        tokenToSend = googleAuth.idToken;
+      }
+
+      if (tokenToSend == null || tokenToSend.isEmpty) {
+        throw Exception('Failed to obtain authentication token from Google.');
+      }
+
+      final data = await ApiService.loginWithGoogle(tokenToSend);
+      return await _saveSessionFromTokenResponse(data);
+    } catch (e) {
+      final errStr = e.toString().replaceAll('Exception: ', '').trim();
+      final lower = errStr.toLowerCase();
+
+      // Gracefully handle cancellation codes
+      if (lower.contains('sign_in_canceled') ||
+          lower.contains('canceled') ||
+          lower.contains('12501')) {
+        return null;
+      }
+
+      if (lower.contains('network_error') || lower.contains('socketexception')) {
+        throw Exception('Network error during Google Sign-In. Please check your connection.');
+      }
+
+      if (lower.contains('apiexception: 10') || lower.contains('developer_error')) {
+        throw Exception(
+          'Google Sign-In configuration error (Code 10). Make sure SHA-1 fingerprint is registered in Firebase Console.',
+        );
+      }
+
+      throw Exception(ApiService.cleanErrorMessage(e, 'Google Sign-In'));
+    }
+  }
+
   /// Rotates refresh token and obtains a fresh access token
   Future<bool> refreshToken() async {
     final currentRefresh = _refreshToken ?? await _storage.read(key: _kRefreshToken);
@@ -235,6 +305,14 @@ class AuthService {
         // Ensure local credentials are cleared even if server is unreachable
       }
     }
+
+    try {
+      await GoogleSignIn().signOut();
+    } catch (_) {}
+
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
 
     await _clearSession();
   }

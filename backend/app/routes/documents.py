@@ -15,6 +15,7 @@ from ..models import (
     DocumentResponse,
     DocumentUpdateRequest,
     MessageResponse,
+    NoteEvaluationResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -274,4 +275,26 @@ async def delete_document(
     await db.commit()
 
     return MessageResponse(message="Document deleted successfully.")
+
+
+@router.post("/{document_id}/evaluate", response_model=NoteEvaluationResponse)
+async def evaluate_document_alias(
+    document_id: str,
+    force_refresh: bool = False,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from .evaluations import evaluate_document
+    return await evaluate_document(document_id=document_id, force_refresh=force_refresh, current_user=current_user, db=db)
+
+
+@router.get("/{document_id}/evaluation", response_model=NoteEvaluationResponse)
+async def get_document_evaluation_alias(
+    document_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from .evaluations import get_document_evaluation
+    return await get_document_evaluation(document_id=document_id, current_user=current_user, db=db)
+
 

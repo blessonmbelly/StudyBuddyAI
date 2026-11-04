@@ -5,6 +5,7 @@ import 'package:studybuddy_ai/models/auth_user.dart';
 import 'package:studybuddy_ai/screens/home_screen.dart';
 import 'package:studybuddy_ai/screens/login_screen.dart';
 import 'package:studybuddy_ai/screens/register_screen.dart';
+import 'package:studybuddy_ai/widgets/google_sign_in_button.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -180,6 +181,50 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Passwords do not match.'), findsOneWidget);
+    });
+  });
+
+  group('Google Sign-In UI Tests', () {
+    testWidgets('LoginScreen renders Google Sign-In button and OR divider', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LoginScreen(
+            onLoginSuccess: (_) {},
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('OR'), findsOneWidget);
+      expect(find.byType(GoogleSignInButton), findsOneWidget);
+      expect(find.text('Continue with Google'), findsOneWidget);
+      expect(find.byType(GoogleLogo), findsOneWidget);
+    });
+
+    testWidgets('RegisterScreen renders Google Sign-In button and OR divider', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: RegisterScreen(
+            onRegisterSuccess: (_) {},
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('OR'), findsOneWidget);
+      expect(find.byType(GoogleSignInButton), findsOneWidget);
+      expect(find.text('Sign up with Google'), findsOneWidget);
+      expect(find.byType(GoogleLogo), findsOneWidget);
     });
   });
 }

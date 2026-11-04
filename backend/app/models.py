@@ -96,6 +96,7 @@ class NoteGenerateRequest(BaseModel):
     course_name: Optional[str] = None
     title: Optional[str] = None
     document_id: Optional[str] = None
+    force_regenerate: bool = False
 
 class NoteGenerateResponse(BaseModel):
     id: Union[int, str] = 1
@@ -361,6 +362,10 @@ class UserLoginRequest(BaseModel):
         return v
 
 
+class GoogleLoginRequest(BaseModel):
+    id_token: str = Field(..., min_length=1, description="Firebase or Google ID Token string")
+
+
 class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
@@ -391,3 +396,63 @@ class LogoutRequest(BaseModel):
 class MessageResponse(BaseModel):
     message: str
 
+
+
+# --- Note Quality Evaluation Models ---
+
+class FlaggedClaim(BaseModel):
+    statement: str = Field(..., description="Exact statement or claim from the notes")
+    issue_type: str = Field("INCORRECT", description="INCORRECT, MISLEADING, UNSUPPORTED, or OUTDATED")
+    severity: str = Field("MEDIUM", description="HIGH, MEDIUM, or LOW")
+    explanation: str = Field(..., description="Academic reason why the statement is flagged")
+    evidence: str = Field(..., description="Counter-evidence or authoritative consensus comparison")
+    correction: Optional[str] = Field(None, description="Suggested correction or clarification")
+
+
+class MissingTopic(BaseModel):
+    topic: str = Field(..., description="Name of the missing concept or topic")
+    importance: str = Field("HIGH", description="CRITICAL, HIGH, or MODERATE")
+    explanation: str = Field(..., description="Why this topic is important for student mastery")
+    recommended_overview: Optional[str] = Field(None, description="Brief study summary of the missing topic")
+
+
+class VerifiedFact(BaseModel):
+    fact: str = Field(..., description="Confirmed accurate claim from the notes")
+    corroboration: str = Field(..., description="Authoritative corroboration or textbook context")
+
+
+class UncertainClaim(BaseModel):
+    claim: str = Field(..., description="Claim with ambiguity or lacking definitive consensus")
+    reason: str = Field(..., description="Why this claim is nuanced, context-dependent, or uncertain")
+
+
+class NoteEvaluationCreateRequest(BaseModel):
+    document_id: Optional[str] = None
+    text: Optional[str] = None
+    title: Optional[str] = None
+    subject: Optional[str] = None
+
+
+class NoteEvaluationResponse(BaseModel):
+    id: str
+    document_id: Optional[str] = None
+    user_id: Optional[str] = None
+    topic_relevance_score: int = Field(..., ge=0, le=100)
+    factual_accuracy_score: int = Field(..., ge=0, le=100)
+    content_completeness_score: int = Field(..., ge=0, le=100)
+    overall_score: int = Field(..., ge=0, le=100)
+    quality_grade: str
+    summary: str
+    flagged_claims: List[FlaggedClaim] = Field(default_factory=list)
+    missing_topics: List[MissingTopic] = Field(default_factory=list)
+    verified_facts: List[VerifiedFact] = Field(default_factory=list)
+    uncertain_claims: List[UncertainClaim] = Field(default_factory=list)
+    additional_context: List[str] = Field(default_factory=list)
+    strengths: List[str] = Field(default_factory=list)
+    weaknesses: List[str] = Field(default_factory=list)
+    recommendations: List[str] = Field(default_factory=list)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
